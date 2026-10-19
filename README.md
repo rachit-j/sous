@@ -17,12 +17,13 @@ Use Python 3.12 or newer. With [uv](https://docs.astral.sh/uv/):
 ```sh
 uv venv --python 3.12
 uv pip install -r requirements.txt
-cp .env.example .env
 source .venv/bin/activate
 flask --app app run --debug --host 127.0.0.1 --port 5050
 ```
 
 Open http://127.0.0.1:5050. Port 5050 avoids the macOS AirPlay service commonly using 5000. Configure Bedrock through **Settings**, or use existing environment configuration for other providers, and allow webcam access when ready. The interface and manual controls work without model credentials; real monitoring needs a reachable configured provider. See [provider setup](docs/providers.md).
+
+An optional `.env` can be created from `.env.example` for legacy provider configuration; Bedrock setup through Settings does not require it.
 
 For a standard Python setup, create `.venv` with `python3 -m venv .venv`, activate it, and use `python -m pip install -r requirements.txt`.
 

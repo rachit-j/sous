@@ -97,6 +97,8 @@ class SousBrowserTests(unittest.TestCase):
     def start_session(self, model="llava", recipe_id=None):
         if recipe_id:
             self.page.locator("#recipe-select").select_option(recipe_id)
+        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
+            self.page.locator("#provider-overrides > summary").click()
         self.page.locator("#model-input").fill(model)
         self.page.locator("#start-session").click()
         self.page.locator("#session-panel").wait_for(state="visible")

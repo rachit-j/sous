@@ -9,6 +9,7 @@ Only the sous-verify project on 127.0.0.1:5051 is ever touched; the check runs b
 """
 
 import os
+import json
 import re
 import subprocess
 import tempfile
@@ -23,6 +24,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = "sous-verify"
 PORT = "5051"  # reserved for the disposable stack; the default app uses 5050
 BASE_URL = os.environ.get("SOUS_CONTAINER_URL", f"http://127.0.0.1:{PORT}").rstrip("/")
+SYNTHETIC_PASSPHRASE = "sous verify synthetic passphrase"
+SYNTHETIC_ACCESS_KEY = "AKIA1234567890TEST"
+SYNTHETIC_SECRET_KEY = "synthetic-container-secret-key"
 LIVE_MODEL = "qwen3-vl:8b"
 _verified_fixture = False
 
@@ -64,7 +68,7 @@ class ContainerTestCase(unittest.TestCase):
         return re.search(r'name="csrf-token" content="([^"]+)"', page.text).group(1)
 
     def api(self, method, path, **kwargs):
-        headers = {"X-CSRF-Token": self.token} if method == "POST" else {}
+        headers = {"X-CSRF-Token": self.token} if method != "GET" else {}
         return self.http.request(method, f"{BASE_URL}{path}", headers=headers,
                                  timeout=kwargs.pop("timeout", 15), **kwargs)
 
@@ -93,7 +97,24 @@ class ContainerPersistenceTests(ContainerTestCase):
             self.assertEqual(self.http.get(f"{BASE_URL}{asset}", timeout=10).status_code, 200, asset)
         config = self.api("GET", "/api/config").json()
         self.assertTrue(config["recipes"])
-        self.assertNotIn("sk-", str(config))
+        allowed_provider_fields = {"id", "name", "configured", "default_model", "source", "locked"}
+        for provider in config["providers"]:
+            self.assertLessEqual(set(provider), allowed_provider_fields)
+        serialized_config = json.dumps(config)
+        sensitive_names = {"access_key_id", "secret_access_key", "session_token", "passphrase", "password", "credentials"}
+        found_names = set()
+        def collect_field_names(value):
+            if isinstance(value, dict):
+                found_names.update(key.lower() for key in value)
+                for nested in value.values():
+                    collect_field_names(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    collect_field_names(nested)
+        collect_field_names(config)
+        self.assertFalse(found_names & sensitive_names)
+        self.assertNotIn(SYNTHETIC_SECRET_KEY, serialized_config)
+        self.assertNotIn(SYNTHETIC_PASSPHRASE, serialized_config)
 
         session = self.start_session()
         sid = session["id"]
@@ -115,6 +136,55 @@ class ContainerPersistenceTests(ContainerTestCase):
         self.assertGreater(after["revision"], before["revision"])
         # Same cookie + token still accepted: the generated secret key persisted in the volume.
         self.assertEqual(self.act(sid, "timer_cancel")["timer_deadline"], None)
+
+    def test_encrypted_settings_survive_restart_locked_and_interval_remains_available(self):
+        passphrase = SYNTHETIC_PASSPHRASE
+        access_key = SYNTHETIC_ACCESS_KEY
+        secret_key = SYNTHETIC_SECRET_KEY
+        settings = self.api("GET", "/api/settings").json()
+        if not settings["vault"]["initialized"]:
+            response = self.api("POST", "/api/settings/vault", json={"passphrase": passphrase})
+            self.assertEqual(response.status_code, 201, response.text)
+        else:
+            # The disposable fixture is never reset to accommodate this test. It must already
+            # use this test's synthetic passphrase so its encrypted state remains user-owned.
+            if not settings["vault"]["locked"]:
+                self.api("POST", "/api/settings/lock", json={})
+            response = self.api("POST", "/api/settings/unlock", json={"passphrase": passphrase})
+            self.assertEqual(response.status_code, 200,
+                             "sous-verify vault is initialized with a different passphrase; refusing to reset it")
+
+        saved = self.api("PUT", "/api/settings/bedrock", json={
+            "region": "us-east-1", "model": "us.synthetic.vision-v1",
+            "access_key_id": access_key, "secret_access_key": secret_key,
+        })
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertNotIn(secret_key, saved.text)
+        self.assertNotIn(passphrase, saved.text)
+        preference = self.api("PUT", "/api/settings/preferences", json={"sample_interval": 15})
+        self.assertEqual(preference.status_code, 200, preference.text)
+        self.assertEqual(preference.json()["sample_interval"], 15)
+
+        compose("restart", "sous", check=True, timeout=300,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.wait_until_ready()
+        locked = self.api("GET", "/api/settings").json()
+        self.assertTrue(locked["vault"]["initialized"])
+        self.assertTrue(locked["vault"]["locked"])
+        self.assertIsNone(locked["bedrock"]["region"])
+        self.assertIsNone(locked["bedrock"]["has_credentials"])
+        self.assertEqual(locked["sample_interval"], 15)
+        self.assertNotIn(secret_key, str(locked))
+
+        unlocked = self.api("POST", "/api/settings/unlock", json={"passphrase": passphrase})
+        self.assertEqual(unlocked.status_code, 200, unlocked.text)
+        state = unlocked.json()
+        self.assertEqual(state["bedrock"]["region"], "us-east-1")
+        self.assertEqual(state["bedrock"]["model"], "us.synthetic.vision-v1")
+        self.assertTrue(state["bedrock"]["has_credentials"])
+        self.assertNotIn(secret_key, unlocked.text)
+        self.assertNotIn(passphrase, unlocked.text)
+        self.api("POST", "/api/settings/lock", json={})
 
     def wait_until_ready(self):
         for _ in range(40):

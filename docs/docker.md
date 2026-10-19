@@ -56,6 +56,7 @@ Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Legacy environmen
 ## Runtime notes
 
 - Gunicorn runs one worker with four threads. Do not scale it: the one-analysis-per-session lock and the startup pause of monitoring are process-local.
+- The unlocked credential vault is also process-local. It locks whenever the server worker restarts; unlock again through Settings. Keep the passphrase separate from the volume backup. Locking discards in-memory key references, but cannot recall an AWS request already submitted.
 - The process runs as the non-root user `sous` (uid 10001). Gunicorn's worker timeout is 210 s (a heartbeat limit, not a hard per-request limit; provider calls have their own timeouts, 180 s for local Ollama). On stop or restart, in-flight requests get up to 210 s to finish (Compose waits up to 220 s), so stopping during a cold-model analysis can take a while.
 - The image contains only runtime code, templates, static files and `recipes/*.json`; docs, tests and agent files are excluded by `.dockerignore` and the `COPY` allowlist.
 - There is no container healthcheck: the slim image has no `curl`, and none is added just for that. Check `http://127.0.0.1:5050/api/config` instead.

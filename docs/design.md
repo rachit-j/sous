@@ -50,12 +50,20 @@ Numbers that change (timer, step counts, elapsed time, confidence, event times) 
 
 ## Layout
 
+### Navigation and settings
+
+The top bar has internal **Cooking** and **Settings** navigation. Switching views does not reload the document. Leaving an active cooking session pauses guidance and cancels any pending observation before Settings appears; the camera preview may remain local, and returning to Cooking never resumes guidance automatically. A locked Bedrock session shows an unlock notice and keeps manual step controls and timers available.
+
+Settings uses the same grey surfaces, charcoal type and compact panel treatment as the cooking workspace. The vault panel shows create, unlock or lock state. Bedrock fields include region, write-only access-key credentials, optional token removal, explicit model discovery and a manual model/profile ID. Saved secrets never populate form fields. Provider defaults apply to new sessions; existing sessions keep their provider/model. The snapshot interval is a separate preference, available while the vault is locked, with an integer range of 1–15 seconds and default of 10.
+
+The cooking setup keeps recipe selection and preview as the main pane. Guidance shows a compact provider/model summary; per-session provider and model overrides sit in a disclosure. A saved but unavailable Bedrock default remains selected and disables **Start cooking** until the user unlocks or chooses an available override; it does not silently switch providers.
+
 ### Setup
 
 A single framed form split into two panes.
 
 - **Recipe pane:** the recipe select and a live preview generated from the recipe data: name, step and ingredient counts, description, ingredient list and numbered step titles. The ingredient and step lists sit side by side when the pane is at least 520px wide (container query) and stack otherwise.
-- **Guidance pane:** provider, model, mode choice (radio cards, green when selected), the camera privacy note and a full-width **Start cooking** button.
+- **Guidance pane:** compact default provider/model summary, optional per-session provider/model disclosure, mode choice (radio cards, green when selected), the camera privacy note and a full-width **Start cooking** button.
 - Below 960px the panes stack.
 
 ### Active cooking
@@ -106,6 +114,7 @@ Classes and attributes created by app.js that the stylesheet relies on:
 | Timer | `#timer-readout[data-state=idle|running|done]` |
 | Step change | `#current-step.step-changed` |
 | Completion | `#completion-panel[data-status=completed|ended]` |
+| Navigation/settings | `#app-nav` selects `#setup-panel`, `#session-panel`, `#completion-panel` or `#settings-panel`; settings messages use text-only status regions and safe server-provided metadata |
 
 ## Verification
 

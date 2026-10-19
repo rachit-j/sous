@@ -2,12 +2,16 @@
 
 ## Current
 
-- Phase: secure Bedrock Settings on feature/ui-thinking-dots.
-- Active: specifying encrypted credential vault and settings/model-selection flow, then Opus backend and Luna UI implementation.
+- Phase: secure Bedrock Settings delivered on feature/ui-thinking-dots.
+- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. New vault is uninitialized and locked; snapshot interval defaults to 10 seconds.
 - Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
-- Next checkpoint: backend/vault tests and UI integration; Ollama stays off. User approved unlock passphrase after restart.
+- Next checkpoint: user creates a passphrase in Settings, enters Bedrock credentials/region, selects a model and tests live inference. Ollama remains off; live AWS has not been invoked.
 
 ## Milestones
+
+- 2026-10-19: Settings delivery verified. All 14 non-live browser scenarios covered across full/targeted runs; final three affected cases passed in 12.261s after recipe/default refresh, camera-permission harness and repeat-lock fixes. Independent reviewer confirmed listed issues resolved. Two isolated Docker persistence tests passed in 6.571s. Final Linux-image discovery passed 76 reported tests in 4.058s (5 optional skips). Normal Compose rebuilt with data retained; HTTP200, new vault state and default 10-second interval confirmed. Test stack stopped without volume deletion. No real credentials, physical camera, personal browser, live AWS or Ollama used.
+
+- 2026-10-19: Secure Bedrock backend committed e5fb927 after75 reported tests passed in6.582s. Settings UI added by Luna; backend discovery after UI passed76 reported tests (optional5 skips). Initial browser run preserved cooking flows but new settings tests need harness corrections; recipe-selection/model-default refresh defects queued. Real isolated Docker vault restart case passed, including locked state and persisted15-second interval. Older container secret-prefix assertion falsely matched desk-demo and is being corrected.
 
 - 2026-10-19: Created feature/ui-thinking-dots from clean main. Opus added animated analysis dots with accessible status and static reduced-motion rendering. WebKit suite passed8 actual cases with1 live skip in27.885s. Luna found and fixed camera-off request cleanup; three affected lifecycle cases passed in9.637s. Desktop/mobile pending screenshots inspected; no physical camera or live model used.
 

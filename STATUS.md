@@ -2,10 +2,10 @@
 
 ## Current
 
-- Phase: review fixes and frontend recipe integration.
-- Active: Luna implementing snapshot-aware UI and camera-permission regression; Codex verified Sonnet audit fix and coordinating Docker handoff.
+- Phase: Docker packaging.
+- Active: Codex committing verified U2; Claude Sonnet assigned container packaging; Luna final read-only review.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: run provider tests and live local inference, independent review, then Docker packaging.
+- Next checkpoint: build Compose image, verify persistence/non-root/container-to-host model access, then start final localhost app.
 
 ## Milestones
 
@@ -33,3 +33,4 @@
 - 2026-10-19T20:52Z: G1 completed by Opus; Codex ran44 tests successfully. JSON recipe loading, different step counts, immutable session recipes and additive legacy database migration covered. Preparing small Sonnet audit-log correction, then Luna snapshot-aware UI/camera-race fix.
 - 2026-10-19: G1 committed0025e58. Sonnet dispatched only for small audit regression/test-decoupling follow-up; larger implementation tasks used Opus.
 - 2026-10-19T20:54Z: Sonnet audit fix complete and46 tests passed. Stale success/failure audit rows retain request context; stale failures return409. Generic loader has no food-specific alias/import-time default load. Luna authorized final UI snapshot/camera fix as sole writer.
+- 2026-10-19T21:18Z: U2 WebKit suite green:6 passed+optional live skipped in25.450s. Covered custom3-step recipe/snapshot after catalog removal and camera permission A resolving during sessionB (stale track stopped). Keyboard accessibility check uses macOS WebKit Option+Tab; no system settings changed. Docker packaging next.

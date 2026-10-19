@@ -28,7 +28,7 @@
       <div class="setup-intro">
         <p class="eyebrow">Your kitchen, your pace</p>
         <h1>Let’s make something good.</h1>
-        <p class="lede">A calm companion for one pan of soft scrambled eggs. You stay in control at every step.</p>
+        <p class="lede">A calm companion while you cook. You stay in control at every step.</p>
       </div>
       <form id="setup-form" class="setup-form">
         <div class="form-main">
@@ -78,15 +78,18 @@
         <div><strong>Welcome back.</strong><span>Your recipe is saved. Camera guidance is paused until you resume.</span></div>
         <button class="button button-small" id="restore-resume" type="button">Resume guidance</button>
       </div>
+      <div id="recipe-unavailable" class="restore-notice recipe-unavailable" hidden role="status">
+        <div><strong>This session’s recipe is unavailable.</strong><span>You can still use the timer or end this session. Start a new session to choose an available recipe.</span></div>
+      </div>
 
       <div class="workspace">
         <section class="cook-column" aria-label="Current cooking step">
-          <div class="step-progress" aria-label="Recipe progress">
-            <div class="progress-copy"><span id="step-count">Step 1 of 6</span><span id="elapsed-time">Just started</span></div>
-            <div class="progress-track" role="progressbar" id="progress-bar" aria-label="Recipe progress" aria-valuemin="1" aria-valuemax="6" aria-valuenow="1"><span id="progress-fill"></span></div>
+          <div class="step-progress" id="step-progress" aria-label="Recipe progress">
+            <div class="progress-copy"><span id="step-count">Step 1</span><span id="elapsed-time">Just started</span></div>
+            <div class="progress-track" role="progressbar" id="progress-bar" aria-label="Recipe progress" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1"><span id="progress-fill"></span></div>
           </div>
 
-          <article class="current-step" aria-live="polite" aria-atomic="true">
+          <article class="current-step" id="current-step" aria-live="polite" aria-atomic="true">
             <div class="step-kicker"><span class="step-number" id="step-number">01</span><span>Up next, right here</span></div>
             <h2 id="step-title"></h2>
             <p class="step-instruction" id="step-instruction"></p>
@@ -128,6 +131,7 @@
               <div class="camera-empty" id="camera-empty"><span class="camera-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5h3l1.5-2h7l1.5 2h3A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18V9a1.5 1.5 0 0 1 1-1.5Z"/><circle cx="12" cy="13" r="3.5"/><path d="m4 4 16 16"/></svg></span><p>Turn on the camera when you’re ready.</p></div>
             </div>
             <div class="camera-controls"><button class="button button-small" id="camera-toggle" type="button">Turn on camera</button><button class="button button-small button-text" id="analyze-now" type="button" disabled>Analyze now</button></div>
+            <p class="field-help">When you analyze a look, a still image goes to the selected model. Sous saves observations, not images.</p>
             <p id="camera-message" class="camera-message" role="status"></p>
           </section>
 
@@ -136,7 +140,7 @@
             <form id="timer-form" class="timer-form"><label class="visually-hidden" for="timer-minutes">Timer duration in minutes</label><input id="timer-minutes" type="number" min="0.02" max="1440" step="any" placeholder="Minutes" inputmode="decimal"><button class="button button-small" type="submit">Start</button><button class="button button-small button-text" id="cancel-timer" type="button" disabled>Cancel</button></form>
           </section>
 
-          <details class="recipe-panel" open>
+          <details class="recipe-panel" id="recipe-panel" open>
             <summary><span><span class="recipe-heading">Recipe</span><span class="recipe-subheading" id="recipe-progress-label">All the way through</span></span><span class="summary-chevron" aria-hidden="true">⌄</span></summary>
             <ul class="ingredient-list" id="ingredient-list"></ul>
             <ol class="recipe-steps" id="recipe-steps"></ol>
@@ -145,12 +149,12 @@
       </div>
 
       <div class="lower-workspace">
-        <section class="observation-panel" aria-labelledby="observation-heading">
+        <section class="observation-panel" id="observation-panel" aria-labelledby="observation-heading">
           <div class="section-heading"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption">No camera observations yet</p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
           <div id="observation-content" class="observation-content"><p>Camera observations will appear here. They’re a helpful cue, never a food-safety check.</p></div>
           <p class="observation-footnote">Confidence is a rough model signal, not a calibrated probability.</p>
         </section>
-        <section class="voice-panel" aria-labelledby="voice-heading">
+        <section class="voice-panel" id="voice-panel" aria-labelledby="voice-heading">
           <div class="section-heading"><div><h2 id="voice-heading">Hands-free, if you like</h2><p id="voice-support">Buttons and text work in every browser.</p></div><button class="button button-small" id="voice-toggle" type="button">Start listening</button></div>
           <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-small" type="submit">Send</button></form>
           <p id="voice-message" class="voice-message" role="status"></p>

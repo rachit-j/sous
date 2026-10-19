@@ -98,3 +98,7 @@ No concrete adapter wire/parser defect found. One P2 in observation persistence:
 ### Audit fix / U2 dispatch
 
 Sonnet completed minimal audit fix and removed loader's test-only food-specific exports/import-time load. Codex ran46 tests successfully; late success/failure provenance checked and in-order failures still502. Luna now sole writer for templates/index.html, static/app.js, tests/test_browser.py and style only as needed: generic setup copy, session snapshot preference, legacy unavailable recipe controls, stale camera-permission lifecycle guard, and generated-only browser regressions for short recipes/snapshot restoration and camera request A resolving during sessionB.
+
+### U2 verification / Docker handoff
+
+Final isolated WebKit run:6 passed+optional live skipped in25.450s. Test harness fixed missing new-session transition, CSS uppercase text assertion, async waits, and Mac WebKit Option+Tab navigation without altering system settings. Generic3-step recipe restores from snapshot after omitted current catalog entry; pending sessionA permission stream stops when sessionB starts. Neutral camera caption and accurate selected-provider still-image copy added. Codex commits UI; Luna stops writing. Sonnet receives bounded Docker packaging task (Dockerfile/compose/.dockerignore/requirements/.env.example/docs/docker.md/tests/test_container.py); app code stable and reviewed.

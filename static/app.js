@@ -8,6 +8,8 @@
     recipe: null,
     session: null,
     camera: null,
+    cameraRequestId: 0,
+    cameraRequestPending: false,
     captureTimer: null,
     uiGeneration: 0,
     observationInFlight: false,
@@ -112,12 +114,13 @@
       const { session } = await api("/api/sessions/active");
       $("#loading-panel").hidden = true;
       if (session) {
-        state.recipe = state.config.recipes.find((item) => item.id === session.recipe_id);
         state.session = session;
+        state.recipe = session.recipe || null;
         state.restored = true;
         // Always invalidate any pre-refresh monitoring state before presenting recovery.
         const paused = await post(`/api/sessions/${session.id}/actions`, { action: "pause" });
         state.session = paused;
+        state.recipe = paused.recipe || null;
         $("#setup-panel").hidden = true;
         $("#session-panel").hidden = false;
         $("#restore-notice").hidden = false;
@@ -180,7 +183,7 @@
       if (session.updated_at === previous.updated_at && previous.timer_alerted && !session.timer_alerted) return false;
     }
     state.session = session;
-    state.recipe = state.config.recipes.find((item) => item.id === session.recipe_id) || state.recipe;
+    state.recipe = session.recipe || null;
     renderSession();
     if (previous && options.announce !== false) announceStateChange(previous, session, options.source);
     if (session.status !== "active") finishSessionUi(session.status);
@@ -189,12 +192,12 @@
   }
 
   function announceStateChange(previous, current, source) {
-    if (previous.step_index !== current.step_index) {
+    if (state.recipe && previous.step_index !== current.step_index) {
       const step = state.recipe.steps[current.step_index];
       if (current.mode === "assistive") speak(`${step.title}. ${step.instruction}`);
       else if (current.mode === "monitoring") speak(`Next step: ${step.title}.`);
     }
-    if (previous.mode !== current.mode && current.mode === "assistive") {
+    if (state.recipe && previous.mode !== current.mode && current.mode === "assistive") {
       const step = state.recipe.steps[current.step_index];
       speak(`${step.title}. ${step.instruction}`);
     }
@@ -205,8 +208,26 @@
 
   function renderSession() {
     const session = state.session;
+    if (!session) return;
+    state.recipe = session.recipe || null;
     const recipe = state.recipe;
-    if (!session || !recipe) return;
+    if (!recipe || !Array.isArray(recipe.steps) || recipe.steps.length === 0) {
+      renderUnavailableRecipeSession(session);
+      return;
+    }
+    $("#recipe-unavailable").hidden = true;
+    $("#step-progress").hidden = false;
+    $("#current-step").hidden = false;
+    $("#recipe-panel").hidden = false;
+    $("#observation-panel").hidden = false;
+    $("#voice-panel").hidden = false;
+    $("#correct-details").hidden = false;
+    $("#monitoring-toggle").disabled = session.status !== "active";
+    $("#camera-toggle").disabled = session.status !== "active" || state.cameraRequestPending;
+    $("#camera-toggle").textContent = state.camera ? "Turn off camera" : "Turn on camera";
+    $("#voice-toggle").disabled = false;
+    $("#command-input").disabled = false;
+    $("#command-form button[type=submit]").disabled = false;
     const step = recipe.steps[session.step_index];
     const last = session.step_index === recipe.steps.length - 1;
     $("#session-recipe-name").textContent = recipe.name;
@@ -240,6 +261,39 @@
     renderEvents(session.events || []);
     updateTimerDisplay();
     setConnection(session.status === "active" ? "Session saved" : "Session complete");
+  }
+
+  function renderUnavailableRecipeSession(session) {
+    if (state.camera || state.cameraRequestPending) stopCamera();
+    $("#recipe-unavailable").hidden = false;
+    $("#step-progress").hidden = true;
+    $("#current-step").hidden = true;
+    $("#recipe-panel").hidden = true;
+    $("#observation-panel").hidden = true;
+    $("#voice-panel").hidden = true;
+    $("#correct-details").hidden = true;
+    $("#next-button").hidden = true;
+    $("#finish-button").hidden = true;
+    $("#back-button").disabled = true;
+    $("#next-button").disabled = true;
+    $("#finish-button").disabled = true;
+    $("#monitoring-toggle").disabled = true;
+    $("#restore-resume").disabled = true;
+    $("#camera-toggle").disabled = true;
+    $("#camera-toggle").textContent = "Unavailable";
+    $("#analyze-now").disabled = true;
+    $("#camera-caption").textContent = "Saved recipe unavailable";
+    setCameraMessage("Visual guidance is disabled because this session has no saved recipe.");
+    $("#session-title").textContent = "Recipe unavailable";
+    $("#session-recipe-name").textContent = "Saved cooking session";
+    $("#mode-badge").textContent = session.mode === "assistive" ? "Talk me through it" : "Keep an eye out";
+    const badge = $("#monitoring-badge");
+    badge.classList.remove("active");
+    badge.lastElementChild.textContent = "Guidance unavailable";
+    $("#restore-notice").hidden = true;
+    renderEvents(session.events || []);
+    updateTimerDisplay();
+    setConnection("Recipe unavailable", "problem");
   }
 
   function renderRecipeLists() {
@@ -344,36 +398,47 @@
   function updateCaptureLoop() {
     clearInterval(state.captureTimer);
     state.captureTimer = null;
-    const canCapture = state.session?.status === "active" && state.session.monitoring && state.camera && document.visibilityState === "visible";
+    const canCapture = state.session?.status === "active" && state.recipe && state.session.monitoring && state.camera && document.visibilityState === "visible";
     $("#analyze-now").disabled = !canCapture || state.observationInFlight;
     if (canCapture) state.captureTimer = setInterval(() => captureAndAnalyze(false), (state.config?.sample_interval || 10) * 1000);
   }
 
   async function enableCamera() {
+    if (!state.session || state.session.status !== "active" || !state.recipe || state.cameraRequestPending) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraMessage("Camera access is unavailable here. You can continue with the step buttons and timer.", true);
       return;
     }
+    const requestId = ++state.cameraRequestId;
+    const sessionId = state.session.id;
+    const isCurrentRequest = () => state.cameraRequestId === requestId
+      && state.session?.id === sessionId
+      && state.session.status === "active"
+      && Boolean(state.recipe);
+    state.cameraRequestPending = true;
     $("#camera-toggle").disabled = true;
     setCameraMessage("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-      if (state.session?.status !== "active") {
+      if (!isCurrentRequest()) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
+      state.cameraRequestPending = false;
       state.camera = stream;
       const video = $("#camera-video");
       video.srcObject = stream;
       video.hidden = false;
       $("#camera-empty").hidden = true;
-      $("#camera-caption").textContent = "Preview stays on this page";
+      $("#camera-caption").textContent = "Camera preview";
       $("#camera-indicator").classList.add("on");
       $("#camera-toggle").textContent = "Turn off camera";
       $("#camera-toggle").disabled = false;
       renderObservation(state.session.latest_observation);
       updateCaptureLoop();
     } catch (error) {
+      if (!isCurrentRequest()) return;
+      state.cameraRequestPending = false;
       $("#camera-toggle").disabled = false;
       setCameraMessage(cameraErrorMessage(error), true);
       showToast(cameraErrorMessage(error), true);
@@ -387,6 +452,8 @@
   }
 
   function stopCamera() {
+    state.cameraRequestId += 1;
+    state.cameraRequestPending = false;
     clearInterval(state.captureTimer);
     state.captureTimer = null;
     if (state.camera) state.camera.getTracks().forEach((track) => track.stop());
@@ -398,7 +465,8 @@
     $("#camera-empty").hidden = false;
     $("#camera-caption").textContent = "Camera is off";
     $("#camera-indicator").classList.remove("on");
-    $("#camera-toggle").textContent = "Turn on camera";
+    $("#camera-toggle").textContent = state.recipe ? "Turn on camera" : "Unavailable";
+    $("#camera-toggle").disabled = !state.recipe || state.session?.status !== "active";
     $("#analyze-now").disabled = true;
   }
 
@@ -408,7 +476,7 @@
   }
 
   async function captureAndAnalyze(manual) {
-    if (!state.session || !state.camera || !state.session.monitoring || document.visibilityState !== "visible" || state.observationInFlight) return;
+    if (!state.session || !state.recipe || !state.camera || !state.session.monitoring || document.visibilityState !== "visible" || state.observationInFlight) return;
     const video = $("#camera-video");
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
       if (manual) setCameraMessage("Camera is warming up. Try Analyze now again in a moment.");
@@ -433,7 +501,7 @@
       const session = await post(`/api/sessions/${state.session.id}/observations`, { image, revision }, { signal: controller.signal });
       if (generation === state.uiGeneration && session.revision >= state.session.revision) {
         acceptSession(session, { announce: true, source: "observation" });
-        $("#camera-caption").textContent = "Preview stays on this page";
+        $("#camera-caption").textContent = "Camera preview";
         setCameraMessage("Look complete.");
       }
     } catch (error) {
@@ -441,17 +509,17 @@
       if (error.status === 409) {
         await refreshSession();
       } else if (error.status === 502 || error.status === 503) {
-        $("#camera-caption").textContent = "Preview stays on this page";
+        $("#camera-caption").textContent = "Camera preview";
         setCameraMessage(`${error.message} Manual controls still work.`, true);
         if (manual) showToast(error.message, true);
       } else {
-        $("#camera-caption").textContent = "Preview stays on this page";
+        $("#camera-caption").textContent = "Camera preview";
         setCameraMessage(`${error.message} You can retry or continue manually.`, true);
       }
     } finally {
       state.observationInFlight = false;
       if (state.observationController === controller) state.observationController = null;
-      if (state.camera && $("#camera-caption").textContent === "Analyzing…") $("#camera-caption").textContent = "Preview stays on this page";
+      if (state.camera && $("#camera-caption").textContent === "Analyzing…") $("#camera-caption").textContent = "Camera preview";
       updateCaptureLoop();
     }
   }
@@ -574,7 +642,7 @@
       return run("timer_set", { seconds });
     }
     if (command === "finish cooking" || command === "finish") {
-      if (state.session?.step_index === state.recipe.steps.length - 1) return finishCooking();
+      if (state.recipe && state.session?.step_index === state.recipe.steps.length - 1) return finishCooking();
       setVoiceMessage("Finish is available on the last recipe step.", true);
       return;
     }
@@ -628,6 +696,9 @@
 
   async function createSession(event) {
     event.preventDefault();
+    // Invalidate any permission request or stream belonging to an earlier session.
+    stopCamera();
+    cancelObservationRequest();
     const form = new FormData(event.currentTarget);
     const button = $("#start-session");
     button.disabled = true;
@@ -640,13 +711,13 @@
         mode: String(form.get("mode")),
       });
       state.session = session;
-      state.recipe = state.config.recipes.find((item) => item.id === session.recipe_id);
+      state.recipe = session.recipe || null;
       state.restored = false;
       $("#setup-panel").hidden = true;
       $("#session-panel").hidden = false;
       renderSession();
       setConnection("Session saved");
-      if (session.mode === "assistive") speak(`${state.recipe.steps[0].title}. ${state.recipe.steps[0].instruction}`);
+      if (session.mode === "assistive" && state.recipe?.steps?.[0]) speak(`${state.recipe.steps[0].title}. ${state.recipe.steps[0].instruction}`);
     } catch (error) {
       showToast(error.message, true);
       button.disabled = false;
@@ -713,6 +784,8 @@
       }
     });
     $("#new-session").addEventListener("click", () => {
+      stopCamera();
+      cancelObservationRequest();
       state.session = null;
       state.recipe = null;
       state.restored = false;

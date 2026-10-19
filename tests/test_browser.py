@@ -6,6 +6,8 @@ physical camera/microphone.
 """
 
 import os
+import json
+import shutil
 import sys
 import tempfile
 import threading
@@ -45,7 +47,29 @@ class SousBrowserTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(prefix="sous-browser-", dir="/tmp")
         self.addCleanup(self.temp.cleanup)
         db_path = os.path.join(self.temp.name, "sous.sqlite3")
-        app = create_app({"TESTING": True, "DATABASE": db_path, "SECRET_KEY": "browser-test-secret"})
+        recipe_dir = Path(self.temp.name) / "recipes"
+        recipe_dir.mkdir()
+        shutil.copyfile(
+            Path(__file__).resolve().parents[1] / "recipes" / "00-scrambled-eggs.json",
+            recipe_dir / "00-scrambled-eggs.json",
+        )
+        (recipe_dir / "10-herbed-rice.json").write_text(json.dumps({
+            "id": "herbed-rice",
+            "name": "Herbed rice",
+            "description": "A short test recipe with its own cues.",
+            "ingredients": ["Rice", "Herbs"],
+            "steps": [
+                {"title": "Rinse rice", "instruction": "Rinse until the water runs clear.", "visual_cue": "The water looks mostly clear."},
+                {"title": "Simmer gently", "instruction": "Cover and simmer until the grains are tender.", "visual_cue": "Small bubbles rise beneath the lid."},
+                {"title": "Fold in herbs", "instruction": "Turn off the heat and fold through the herbs.", "visual_cue": "Green herbs are spread through the rice."},
+            ],
+        }), encoding="utf-8")
+        app = create_app({
+            "TESTING": True,
+            "DATABASE": db_path,
+            "SECRET_KEY": "browser-test-secret",
+            "RECIPE_DIR": str(recipe_dir),
+        })
         self.server = make_server("127.0.0.1", 0, app, threaded=True)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
@@ -70,7 +94,9 @@ class SousBrowserTests(unittest.TestCase):
         self.server_thread.join(timeout=3)
         self.server.server_close()
 
-    def start_session(self, model="llava"):
+    def start_session(self, model="llava", recipe_id=None):
+        if recipe_id:
+            self.page.locator("#recipe-select").select_option(recipe_id)
         self.page.locator("#model-input").fill(model)
         self.page.locator("#start-session").click()
         self.page.locator("#session-panel").wait_for(state="visible")
@@ -93,8 +119,12 @@ class SousBrowserTests(unittest.TestCase):
         """)
         self.assertFalse(hit_testable, "Unfocused skip link should not cover visible page content.")
 
-        self.page.keyboard.press("Tab")
-        self.assertTrue(link.evaluate("element => element === document.activeElement"))
+        # macOS WebKit includes links in keyboard navigation with Option+Tab.
+        self.page.keyboard.press("Alt+Tab")
+        self.assertTrue(
+            link.evaluate("element => element === document.activeElement"),
+            f"Keyboard navigation should focus the skip link; active element is {self.page.evaluate('document.activeElement?.outerHTML')}",
+        )
         self.assertTrue(link.evaluate("""
           element => {
             const rect = element.getBoundingClientRect();
@@ -162,6 +192,63 @@ class SousBrowserTests(unittest.TestCase):
         )
         self.page.locator("#next-button").click()
         self.page.get_by_role("heading", name="Crack and whisk", level=2).wait_for()
+        self.assert_clean_browser()
+
+    def test_recipe_snapshot_survives_catalog_change_and_finishes_at_any_step_count(self):
+        page = self.page
+        self.start_session(recipe_id="herbed-rice")
+        self.assertEqual(page.locator("#session-recipe-name").text_content().strip(), "Herbed rice")
+        self.assertEqual(page.locator("#step-count").inner_text(), "Step 1 of 3")
+        self.assertEqual(page.locator("#step-title").inner_text(), "Rinse rice")
+        self.assertEqual(page.locator("#step-instruction").inner_text(), "Rinse until the water runs clear.")
+        self.assertEqual(page.locator("#visual-cue-text").inner_text(), "The water looks mostly clear.")
+        page.locator("#next-button").click()
+        page.get_by_role("heading", name="Simmer gently", level=2).wait_for()
+        self.assertEqual(page.locator("#step-title").inner_text(), "Simmer gently")
+
+        changed_catalog = page.evaluate("fetch('/api/config').then(response => response.json())")
+        changed_catalog["recipes"] = [recipe for recipe in changed_catalog["recipes"] if recipe["id"] != "herbed-rice"]
+        page.route(
+            "**/api/config",
+            lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(changed_catalog)),
+        )
+        page.reload(wait_until="networkidle")
+        page.locator("#restore-notice").wait_for(state="visible")
+        self.assertEqual(page.locator("#session-recipe-name").text_content().strip(), "Herbed rice")
+        self.assertEqual(page.locator("#step-count").inner_text(), "Step 2 of 3")
+        self.assertEqual(page.locator("#step-instruction").inner_text(), "Cover and simmer until the grains are tender.")
+        self.assertEqual(page.locator("#visual-cue-text").inner_text(), "Small bubbles rise beneath the lid.")
+        page.locator("#next-button").click()
+        page.get_by_role("heading", name="Fold in herbs", level=2).wait_for()
+        self.assertEqual(page.locator("#step-count").inner_text(), "Step 3 of 3")
+        self.assertEqual(page.locator("#step-title").inner_text(), "Fold in herbs")
+        page.locator("#finish-button").click()
+        page.locator("#completion-panel").wait_for(state="visible")
+        self.assert_clean_browser()
+
+    def test_delayed_camera_permission_cannot_attach_to_replacement_session(self):
+        page = self.page
+        page.evaluate("""
+            window.__cameraResolve = null;
+            window.__cameraStopped = false;
+            window.__fakeCameraTrack = { stop: () => { window.__cameraStopped = true; } };
+            Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
+              getUserMedia: () => new Promise(resolve => { window.__cameraResolve = resolve; })
+            }});
+        """)
+        self.start_session()
+        page.locator("#camera-toggle").click()
+        page.wait_for_function("typeof window.__cameraResolve === 'function'")
+        page.locator("#end-session").click()
+        page.locator("#completion-panel").wait_for(state="visible")
+        page.get_by_role("button", name="Start another session").click()
+        page.locator("#setup-panel").wait_for(state="visible")
+        self.start_session()
+        page.evaluate("window.__cameraResolve({ getTracks: () => [window.__fakeCameraTrack] })")
+        page.wait_for_function("window.__cameraStopped === true")
+        self.assertEqual(page.locator("#camera-toggle").inner_text(), "Turn on camera")
+        self.assertTrue(page.locator("#camera-video").is_hidden())
+        self.assertTrue(page.locator("#camera-video").evaluate("video => video.srcObject === null"))
         self.assert_clean_browser()
 
     def test_synthetic_camera_observation_uses_api_and_renders_result(self):

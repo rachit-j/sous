@@ -17,6 +17,7 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 - 2026-10-19: Opt-in real local Ollama WebKit test — passed in51.056s, including cold `qwen3-vl:8b` startup, generated-canvas video capture, real Flask/provider request, validated observation and visible confidence. This verifies transport/integration, not cooking accuracy. No physical camera or external provider involved.
 - 2026-10-19: G1 unittest discovery —44 tests passed in0.509s, optional browser class skipped. Added tests for generic recipe files/order/validation, 1- and2-step recipes, observed/manual transitions against their cues, snapshots after definition changes/removal, and additive migration of prior session/timer/event data.
 - 2026-10-19: Audit follow-up unittest discovery —46 tests passed in0.425s, optional browser class skipped. Late success/failure rows retain original request step/revision, sanitized stale failures return409, and corrected/paused session state remains unchanged.
+- 2026-10-19: Final U2 WebKit suite —6 passed+1 optional live test skipped in25.450s. Includes custom3-step recipe, snapshot recovery after catalog removal, stale permission result across session replacement, synthetic observation/timer race, manual cooking/recovery, denied camera fallback and keyboard skip-link behavior. Node syntax and diff whitespace checks passed.
 
 ## Test environment
 

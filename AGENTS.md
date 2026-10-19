@@ -26,6 +26,7 @@ Read CC-Instructions.md before delegating to Claude Code.
 - Use the find-skills skill when a specific workflow need calls for skill discovery. Inspect available skills first; do not silently install tools or skills.
 - Codex is authorized to commit frequently after inspecting and verifying milestones. Delegated agents must not commit. No pushes, publishing, deployments, contacting others, or destructive Git recovery without explicit authorization.
 - Do not read/print credentials. Keep secrets, frames, raw audio, SQLite files, CLI session artifacts, and environment files out of Git.
+- User-authorized in-app Bedrock credentials use a passphrase-encrypted vault; unlock after server restart. Never persist the unlock key/passphrase beside ciphertext, echo stored secrets to UI, or modify process environment to apply saved credentials. Use synthetic credentials in tests. Snapshot interval is configurable from1–15 seconds, default10.
 
 ## Implementation quality
 

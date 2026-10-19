@@ -8,7 +8,7 @@ The index template injects a CSRF token in a meta element. POST calls include `X
 
 ## Config and recipes
 
-`GET /api/config` returns `{recipes: [...], providers: [...], sample_interval: 10}`.
+`GET /api/config` returns `{recipes: [...], providers: [...], sample_interval: 10, defaults: {provider, model}}`. The interval is a persisted integer from1–15 seconds, default10. See [Settings API](settings.md) for encrypted credential management, provider defaults and model discovery.
 
 Recipe: `{id, name, description, ingredients: [string], steps: [{title, instruction, visual_cue}]}`. Recipes have arbitrary nonempty ordered step lists, addressed by zero-based index. Scrambled eggs is the first bundled example, not a state-machine or model constraint. Definitions load from `recipes/*.json` in filename order.
 

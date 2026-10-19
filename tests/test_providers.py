@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError, NoCredentialsError, ReadTimeoutErro
 import providers
 from providers import InvalidOutput, ProviderError, analyze, parse_observation
 from recipes import load_recipes
+from settings import BedrockConnection
 
 SCRAMBLED_EGGS = load_recipes()["scrambled-eggs"]  # bundled sample used as a fixture
 
@@ -158,6 +159,23 @@ class WireShapeTests(ProviderTestCase):
         image, text = sent["messages"][0]["content"]
         self.assertEqual(image, {"image": {"format": "jpeg", "source": {"bytes": JPEG}}})
         self.assertIn("still whisking", text["text"])
+        self.post.assert_not_called()
+
+    @mock.patch("boto3.Session")
+    def test_bedrock_managed_connection_maps_explicit_credentials(self, session_cls):
+        os.environ.update(AWS_PROFILE="cook", AWS_REGION="eu-west-1")
+        env_before = dict(os.environ)
+        client = session_cls.return_value.client.return_value
+        client.converse.return_value = {"output": {"message": {"content": [{"text": GOOD_TEXT}]}},
+                                        "stopReason": "end_turn"}
+        conn = BedrockConnection("us-west-2", "AKIASENTINEL0000TEST", SECRET, None)
+        self.assertEqual(analyze("bedrock", "vision-model", JPEG, CONTEXT, bedrock=conn), GOOD)
+        session_cls.assert_called_once_with(aws_access_key_id="AKIASENTINEL0000TEST", aws_secret_access_key=SECRET,
+                                            aws_session_token=None, region_name="us-west-2")
+        self.assertEqual(dict(os.environ), env_before)
+        self.assertNotIn(SECRET, repr(conn))
+        with self.assertRaises(ProviderError):
+            analyze("openai", "gpt-x", JPEG, CONTEXT, bedrock=conn)  # never sent to another provider
         self.post.assert_not_called()
 
 

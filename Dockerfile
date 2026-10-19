@@ -11,12 +11,12 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 # Allowlist: only runtime files. Docs, agent notes, tests and dev requirements stay out.
-COPY app.py providers.py recipes.py ./
+COPY app.py providers.py recipes.py settings.py ./
 COPY recipes/ ./recipes/
 COPY templates/ ./templates/
 COPY static/ ./static/
 
-# SQLite database and the generated secret key live here (mounted as a named volume by compose.yaml).
+# SQLite database, the generated secret key and the encrypted settings.vault live here (mounted as a named volume by compose.yaml).
 RUN useradd --system --uid 10001 --no-create-home sous \
     && mkdir -p /app/instance \
     && chown sous:sous /app/instance

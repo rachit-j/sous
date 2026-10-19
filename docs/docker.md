@@ -23,7 +23,7 @@ Rebuild after changing application code, recipes or `requirements.txt`: `docker 
 
 ## Persistent data
 
-The named volume `sous-instance` is mounted at `/app/instance` and holds the SQLite database and the generated session-signing secret. It survives `stop`, `down`, rebuilds and restarts, so sessions, timers and recipe snapshots persist (monitoring is paused after a restart and needs Resume). Avoid `docker compose down -v` or `docker volume rm`: they delete all Sous data and the secret key.
+The named volume `sous-instance` is mounted at `/app/instance` and holds the SQLite database, generated session-signing secret, encrypted provider vault and nonsecret preferences. It survives `stop`, `down`, rebuilds and restarts, so sessions, timers, recipe snapshots and settings persist. Monitoring is paused after restart and needs Resume; the credential vault locks and needs your passphrase. Avoid `docker compose down -v` or `docker volume rm`: they delete all Sous data.
 
 ## Configuration
 
@@ -45,7 +45,9 @@ Variables you leave unset are not passed into the container. After editing `.env
 
 ### AWS Bedrock
 
-Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Options:
+Use the in-app **Settings** page to save credentials encrypted with your unlock passphrase, set region and choose a model. No `.env` is required. Unlock after every server restart; keep your passphrase separately because it is not recoverable. The app does not store the unlock key alongside its data. See [secure settings](settings.md).
+
+Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Legacy environment options remain:
 
 - Pass temporary or static keys through `.env`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optionally `AWS_SESSION_TOKEN`, plus `AWS_REGION` and `BEDROCK_MODEL_ID`.
 - For SSO or named profiles, run Sous directly with `flask --app app run` where the profile works, or export short-lived credentials from your tooling into `.env`.
@@ -54,6 +56,7 @@ Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Options:
 ## Runtime notes
 
 - Gunicorn runs one worker with four threads. Do not scale it: the one-analysis-per-session lock and the startup pause of monitoring are process-local.
+- The unlocked credential vault is also process-local. It locks whenever the server worker restarts; unlock again through Settings. Keep the passphrase separate from the volume backup. Locking discards in-memory key references, but cannot recall an AWS request already submitted.
 - The process runs as the non-root user `sous` (uid 10001). Gunicorn's worker timeout is 210 s (a heartbeat limit, not a hard per-request limit; provider calls have their own timeouts, 180 s for local Ollama). On stop or restart, in-flight requests get up to 210 s to finish (Compose waits up to 220 s), so stopping during a cold-model analysis can take a while.
 - The image contains only runtime code, templates, static files and `recipes/*.json`; docs, tests and agent files are excluded by `.dockerignore` and the `COPY` allowlist.
 - There is no container healthcheck: the slim image has no `curl`, and none is added just for that. Check `http://127.0.0.1:5050/api/config` instead.

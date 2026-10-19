@@ -16,6 +16,7 @@ from flask import Flask, current_app, g, jsonify, render_template, request, sess
 from werkzeug.exceptions import HTTPException
 
 from recipes import load_recipes
+from settings import SettingsError, Vault, merge_bedrock, validate_model_id
 
 MODES = ("monitoring", "assistive")
 ACTIONS = (
@@ -30,7 +31,11 @@ PROVIDERS = (
     ("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
     ("bedrock", "AWS Bedrock", "AWS_REGION", "BEDROCK_MODEL_ID"),
 )
-SAMPLE_INTERVAL = 10
+SAMPLE_INTERVAL = 10  # default; users may save 1..MAX_SAMPLE_INTERVAL seconds
+MIN_SAMPLE_INTERVAL, MAX_SAMPLE_INTERVAL = 1, 15
+MAX_SETTINGS_BYTES = 16 * 1024
+DISCOVERY_PATH = "/api/settings/bedrock/models"
+LOCKED_BEDROCK = "Bedrock settings are locked. Unlock them in Settings; manual controls still work."
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_JPEG_BYTES = 1024 * 1024
 JPEG_PREFIX = "data:image/jpeg;base64,"
@@ -70,6 +75,10 @@ CREATE TABLE IF NOT EXISTS events (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_by_session ON events(session_id, id);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS observations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -111,6 +120,7 @@ def create_app(test_config=None):
         TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
         CLOCK=time.time,
         RECIPE_DIR=None,  # None: bundled recipes/ directory
+        SETTINGS_VAULT=None,  # None: settings.vault next to DATABASE (the data volume)
     )
     if test_config:
         app.config.update(test_config)
@@ -118,14 +128,21 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = load_secret_key(app.config["SECRET_KEY_FILE"])
     app.extensions["sous_observations"] = {"lock": threading.Lock(), "busy": set()}
     app.extensions["sous_recipes"] = load_recipes(app.config["RECIPE_DIR"])
+    vault_path = app.config["SETTINGS_VAULT"] or os.path.join(
+        os.path.dirname(os.path.abspath(app.config["DATABASE"])), "settings.vault")
+    app.extensions["sous_vault"] = Vault(vault_path, app.config["CLOCK"])  # always starts locked
+    app.extensions["sous_discovery"] = threading.Lock()
 
     init_db(app.config["DATABASE"], app.config["CLOCK"](), app.extensions["sous_recipes"])
     app.teardown_appcontext(close_db)
     app.register_error_handler(ApiError, lambda e: (jsonify(error=e.message), e.status))
+    app.register_error_handler(SettingsError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
     app.register_error_handler(Exception, unexpected_error)
     app.before_request(check_origin_and_csrf)
+    app.after_request(security_headers)
     register_routes(app)
+    register_settings_routes(app)
     return app
 
 
@@ -272,8 +289,21 @@ def http_error(exc):
 
 
 def unexpected_error(exc):
-    current_app.logger.exception("Unhandled error")
+    if request.path.startswith("/api/settings"):
+        # No traceback: exception text or frames could carry submitted credentials.
+        current_app.logger.error("Unhandled error in settings request: %s", type(exc).__name__)
+    else:
+        current_app.logger.exception("Unhandled error")
     return jsonify(error="Internal server error."), 500
+
+
+def security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.path.startswith(("/api/settings", "/api/config")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def csrf_token():
@@ -284,7 +314,8 @@ def csrf_token():
 
 
 def check_origin_and_csrf():
-    if request.method in ("GET", "HEAD", "OPTIONS"):
+    # Model discovery is a GET that makes an outbound AWS call, so it also requires the token.
+    if request.method in ("GET", "HEAD", "OPTIONS") and request.path != DISCOVERY_PATH:
         return None
     origin = request.headers.get("Origin")
     if origin is not None and origin != request.host_url.rstrip("/"):
@@ -322,16 +353,96 @@ def decode_jpeg(image):
     return data
 
 
-def provider_catalog():
-    return [
-        {
-            "id": pid,
-            "name": name,
-            "configured": required is None or bool(os.environ.get(required)),
-            "default_model": os.environ.get(model_var, ""),
-        }
-        for pid, name, required, model_var in PROVIDERS
-    ]
+def provider_catalog(db):
+    """Providers with configuration state. A saved (managed) Bedrock connection supersedes the
+    environment; while it is locked Bedrock is unconfigured rather than falling back."""
+    defaults = get_defaults(db)
+    vault = current_vault()
+    catalog = []
+    for pid, name, required, model_var in PROVIDERS:
+        entry = {"id": pid, "name": name, "configured": required is None or bool(os.environ.get(required)),
+                 "default_model": os.environ.get(model_var, "")}
+        if pid == "bedrock":
+            managed = vault.managed_bedrock
+            locked, conn = vault.state()
+            entry["source"] = "managed" if managed else "environment"
+            entry["locked"] = managed and locked
+            if managed:
+                entry["configured"] = conn is not None
+                entry["default_model"] = conn["model"] if conn else ""
+        if defaults["provider"] == pid:
+            entry["default_model"] = defaults["model"]
+        catalog.append(entry)
+    return catalog
+
+
+# --- Settings and preferences ---------------------------------------------
+
+def current_vault():
+    return current_app.extensions["sous_vault"]
+
+
+def get_pref(db, key):
+    row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["value"])
+    except ValueError:
+        return None
+
+
+def set_pref(db, key, value):
+    db.execute("INSERT INTO settings (key, value) VALUES (?, ?)"
+               " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, json.dumps(value)))
+
+
+def valid_interval(value):
+    return is_int(value) and MIN_SAMPLE_INTERVAL <= value <= MAX_SAMPLE_INTERVAL
+
+
+def get_sample_interval(db):
+    value = get_pref(db, "sample_interval")
+    return value if valid_interval(value) else SAMPLE_INTERVAL
+
+
+def get_defaults(db):
+    value = get_pref(db, "defaults")
+    known = {p[0] for p in PROVIDERS}
+    if (isinstance(value, dict) and value.get("provider") in known
+            and isinstance(value.get("model"), str) and value["model"]):
+        return {"provider": value["provider"], "model": value["model"]}
+    return {"provider": None, "model": None}
+
+
+def settings_body():
+    if request.content_length is not None and request.content_length > MAX_SETTINGS_BYTES:
+        raise ApiError(413, "Request is too large.")
+    return json_body()
+
+
+def settings_json(db):
+    """Safe settings view: never includes credentials or the passphrase."""
+    vault = current_vault()
+    managed = vault.managed_bedrock
+    locked, conn = vault.state()
+    if locked:
+        bedrock = {"region": None, "model": None, "has_credentials": None, "has_session_token": None}
+    else:
+        conn = conn or {}
+        bedrock = {"region": conn.get("region", ""), "model": conn.get("model", ""),
+                   "has_credentials": bool(conn), "has_session_token": bool(conn.get("session_token"))}
+    bedrock["source"] = "managed" if managed else ("environment" if os.environ.get("AWS_REGION") else "none")
+    return {
+        "vault": {"initialized": vault.initialized, "locked": locked},
+        "bedrock": bedrock,
+        "defaults": get_defaults(db),
+        "sample_interval": get_sample_interval(db),
+    }
+
+
+def respond_settings(status=200):
+    return jsonify(settings_json(get_db())), status
 
 
 # --- State transitions ----------------------------------------------------
@@ -515,7 +626,9 @@ def register_routes(app):
 
     @app.get("/api/config")
     def config():
-        return jsonify(recipes=list(current_recipes().values()), providers=provider_catalog(), sample_interval=SAMPLE_INTERVAL)
+        db = get_db()
+        return jsonify(recipes=list(current_recipes().values()), providers=provider_catalog(db),
+                       defaults=get_defaults(db), sample_interval=get_sample_interval(db))
 
     @app.post("/api/sessions")
     def create_session():
@@ -525,9 +638,11 @@ def register_routes(app):
         if not isinstance(recipe_id, str) or recipe_id not in current_recipes():
             raise ApiError(400, "Unknown recipe.")
         recipe = current_recipes()[recipe_id]
-        catalog = {p["id"]: p for p in provider_catalog()}
+        catalog = {p["id"]: p for p in provider_catalog(get_db())}
         if not isinstance(provider, str) or provider not in catalog:
             raise ApiError(400, "Unknown provider.")
+        if catalog[provider].get("locked"):
+            raise ApiError(409, LOCKED_BEDROCK)
         if not catalog[provider]["configured"]:
             raise ApiError(400, "That provider is not configured on the server.")
         if not isinstance(model, str) or not model.strip() or len(model) > 200:
@@ -587,6 +702,14 @@ def register_routes(app):
             import providers  # P1 hook: providers.analyze(provider, model, jpeg_bytes, context) -> dict
         except ImportError:
             raise ApiError(503, "Visual monitoring is not available yet. Manual controls still work.") from None
+        # A saved Bedrock connection is passed explicitly; when locked there is no fallback to
+        # environment credentials. Other providers keep the 4-argument call.
+        connection = None
+        if row["provider"] == "bedrock" and current_vault().managed_bedrock:
+            connection = current_vault().connection()
+            if connection is None:
+                raise ApiError(409, LOCKED_BEDROCK)
+        extra = {"bedrock": connection} if connection else {}
 
         busy = current_app.extensions["sous_observations"]
         with busy["lock"]:
@@ -599,7 +722,7 @@ def register_routes(app):
             obs = error = None
             try:
                 obs = validate_observation(
-                    providers.analyze(row["provider"], row["model"], jpeg, context))
+                    providers.analyze(row["provider"], row["model"], jpeg, context, **extra))
             except ValueError as exc:
                 error = f"invalid_output: {exc}"[:300]
             except Exception as exc:  # provider failure; never echo upstream text to the client
@@ -635,3 +758,85 @@ def register_routes(app):
                 raise ApiError(502, "The model returned an unusable observation. Try again.")
             raise ApiError(502, "Analysis failed. Manual controls still work; try again.")
         return respond_session(session_id)
+
+
+def register_settings_routes(app):
+    """Settings API (docs/settings.md). Request bodies are never logged or echoed."""
+
+    @app.get("/api/settings")
+    def get_settings():
+        return respond_settings()
+
+    @app.post("/api/settings/vault")
+    def create_vault():
+        current_vault().create(settings_body().get("passphrase"))
+        return respond_settings(201)
+
+    @app.post("/api/settings/unlock")
+    def unlock_vault():
+        current_vault().unlock(settings_body().get("passphrase"))
+        return respond_settings()
+
+    @app.post("/api/settings/lock")
+    def lock_vault():
+        current_vault().lock()
+        return respond_settings()
+
+    @app.put("/api/settings/bedrock")
+    def save_bedrock():
+        body = settings_body()
+        vault = current_vault()
+        vault.save_bedrock(merge_bedrock(vault.bedrock(), body))
+        return respond_settings()
+
+    @app.delete("/api/settings/bedrock")
+    def delete_bedrock():
+        vault = current_vault()
+        vault.bedrock()  # 409 when locked
+        vault.save_bedrock(None)
+        return respond_settings()
+
+    @app.put("/api/settings/defaults")
+    def save_defaults():
+        body = settings_body()
+        current_vault().bedrock()  # unlocked vault required
+        provider = body.get("provider")
+        if not isinstance(provider, str) or provider not in {p[0] for p in PROVIDERS}:
+            raise ApiError(400, "Unknown provider.")
+        model = validate_model_id(body.get("model"), required=True)
+        db = get_db()
+        with transaction(db):
+            set_pref(db, "defaults", {"provider": provider, "model": model})
+        return respond_settings()
+
+    @app.put("/api/settings/preferences")
+    def save_preferences():
+        interval = settings_body().get("sample_interval")
+        if not valid_interval(interval):
+            raise ApiError(400, f"sample_interval must be an integer from {MIN_SAMPLE_INTERVAL}"
+                                f" to {MAX_SAMPLE_INTERVAL}.")
+        db = get_db()
+        with transaction(db):
+            set_pref(db, "sample_interval", interval)
+        return respond_settings()
+
+    @app.get(DISCOVERY_PATH)
+    def discover_bedrock_models():
+        vault = current_vault()
+        vault.bedrock()  # 409 when locked
+        connection = vault.connection()
+        if connection is None:
+            raise ApiError(409, "Save a Bedrock connection before listing models.")
+        import providers
+        guard = current_app.extensions["sous_discovery"]
+        if not guard.acquire(blocking=False):
+            raise ApiError(409, "Model discovery is already running.")
+        try:
+            result = providers.list_bedrock_models(connection)
+        except providers.ProviderError as exc:
+            current_app.logger.warning("Bedrock model discovery failed: %s", exc.public_message)
+            raise ApiError(502, f"{exc.public_message} You can still enter a model or inference"
+                                " profile ID manually.") from None
+        finally:
+            guard.release()
+        return jsonify(result)

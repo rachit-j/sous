@@ -2,9 +2,18 @@
 
 ## Current state
 
-MVP application and Docker packaging verified. Recipes are generic structured JSON, with scrambled eggs bundled first. Physical camera/audio and live cloud providers remain manual/configuration-dependent checks.
+MVP application and Docker packaging verified. Recipes are generic structured JSON, with scrambled eggs bundled first. User-driven live Bedrock desk-demo inference and automatic progression are verified; audio, real cooking accuracy and the other cloud providers remain manual/configuration-dependent checks.
 
 ## Observed checks
+
+- 2026-10-19 user-driven live Bedrock: read-only inspection of the normal Docker session confirmed successful amazon.nova-lite-v1:0 observations and automatic Open palm -> Closed fist progression. The next fist observation was marked complete at95% confidence, with1 of2 required qualifying observations. This validates the real saved-credential Bedrock path and desk-demo progression, not general cooking accuracy. The user operated the camera; agents did not access camera images or credentials and did not initiate paid inference calls themselves.
+
+- 2026-10-19 secure Bedrock Settings: backend/vault/provider discovery passed75 reported cases in6.582s after fail-closed metadata fix; after UI additions, discovery passed76 reported cases in7.064s (5 optional skips). Coverage includes encrypted-at-rest sentinel absence and0600 permissions, restart lock/unlock/throttle/tampering, no secret API/log leakage, CSRF, explicit Boto3 credentials, no locked environment fallback, discovery filtering/pagination/errors, and interval1–15 validation/persistence.
+- Settings WebKit:14 non-live scenarios verified across full and targeted runs. The full run passed11 scenarios, skipped live Ollama, and identified3 harness/lock-button failures; those3 passed after corrections in12.261s. Existing cooking, thinking dots and permission races passed. Added actual scheduler1000ms/15000ms checks, Settings pause/cancel/frame guard, late camera-permission disposal, immutable active session provider/model versus new defaults, recipe preservation, credential field/API/storage checks, discovery/custom ID fallback, and repeat lock/unlock. Viewed Settings desktop/mobile captures under /private/tmp; no physical camera or personal browser.
+- Real Docker Settings persistence:2 isolated sous-verify tests passed in6.571s. Vault and interval persisted across actual restart, vault returned locked, decrypted settings required the synthetic passphrase, and session/timer/cookie persistence remained valid. Only synthetic credentials were used; no AWS or Ollama request. Default app data volume was not used by tests.
+- Final Settings image: Linux-container unittest discovery passed 76 reported tests in 4.058s (5 optional skips). Normal Compose app rebuilt successfully on localhost:5050 with existing data retained; root page HTTP200 and safe settings status confirmed an uninitialized locked vault with sample_interval=10. Disposable test stack stopped without deleting its volume. Live Bedrock inference remains unverified until the user configures credentials/model access through Settings.
+
+- 2026-10-19 thinking dots: isolated WebKit suite passed8 actual cases plus1 optional live-model skip in27.885s. New delayed synthetic observation test checks pending dots/busy state, success, failure, previous-observation retention, pause/end cleanup and reduced motion. After Luna's camera-off cancellation fix,3 affected lifecycle tests passed in9.637s, including aborted request/dots/status cleanup on camera-off and existing permission/timer races. Desktop/mobile pending screenshots inspected. JavaScript syntax and diff checks passed. Ollama intentionally off; no live inference attempted.
 
 - 2026-10-19 desk demo:8 focused recipe-loader/config tests passed in0.033s; final default-order loader recheck passed. Running Docker API lists desk-demo with empty ingredients and4 steps after the default recipe. Container rebuilt with persistent data retained. This validates recipe delivery, not physical hand-gesture recognition; no camera accessed.
 
@@ -40,6 +49,6 @@ MVP application and Docker packaging verified. Recipes are generic structured JS
 
 - Physical webcam framing and actual microphone recognition/audio output on the user's hardware; all automated camera frames were synthetic and no personal browser was accessed.
 - Real cooking accuracy, confidence calibration and intervention usefulness across recipes have not been evaluated by these integration tests.
-- OpenAI, Anthropic and Bedrock are covered by mocked request/response tests; live calls need the user's configured model access/credentials.
+- OpenAI and Anthropic remain covered by mocked request/response tests only. Bedrock's live path was exercised by the user with Nova Lite; other models/regions and real cooking scenarios remain unverified.
 
 See [status](../STATUS.md) for progress and [API contract](api.md) for expected behavior.

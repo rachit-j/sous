@@ -2,12 +2,20 @@
 
 ## Current
 
-- Phase: UI redesign delivered.
-- Active: redesigned Compose app at http://127.0.0.1:5050 now includes a no-materials desk demo recipe with four hand poses.
-- Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: user trial of the redesigned workspace; physical camera/audio and live cloud checks remain configuration-dependent.
+- Phase: secure Bedrock Settings delivered on feature/ui-thinking-dots.
+- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. User configured Bedrock through Settings and verified the desk demo; snapshot interval defaults to 10 seconds.
+- Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
+- Next checkpoint: user handles push and MR. Opus is independently working on brag-output/; leave its in-progress files untouched.
 
 ## Milestones
+
+- 2026-10-19: User-driven live Bedrock test succeeded with amazon.nova-lite-v1:0. Read-only live-session inspection confirmed automatic advancement from Open palm to Closed fist, followed by a qualifying fist observation at95% confidence (1 of2 confirmations). This verifies real managed Bedrock inference and automatic progression for the desk demo; real cooking accuracy and audio remain unevaluated. No credentials or camera images were accessed by agents. App work committed; brag-output/ remains owned by the separate in-progress Opus task.
+
+- 2026-10-19: Settings delivery verified. All 14 non-live browser scenarios covered across full/targeted runs; final three affected cases passed in 12.261s after recipe/default refresh, camera-permission harness and repeat-lock fixes. Independent reviewer confirmed listed issues resolved. Two isolated Docker persistence tests passed in 6.571s. Final Linux-image discovery passed 76 reported tests in 4.058s (5 optional skips). Normal Compose rebuilt with data retained; HTTP200, new vault state and default 10-second interval confirmed. Test stack stopped without volume deletion. No real credentials, physical camera, personal browser, live AWS or Ollama used.
+
+- 2026-10-19: Secure Bedrock backend committed e5fb927 after75 reported tests passed in6.582s. Settings UI added by Luna; backend discovery after UI passed76 reported tests (optional5 skips). Initial browser run preserved cooking flows but new settings tests need harness corrections; recipe-selection/model-default refresh defects queued. Real isolated Docker vault restart case passed, including locked state and persisted15-second interval. Older container secret-prefix assertion falsely matched desk-demo and is being corrected.
+
+- 2026-10-19: Created feature/ui-thinking-dots from clean main. Opus added animated analysis dots with accessible status and static reduced-motion rendering. WebKit suite passed8 actual cases with1 live skip in27.885s. Luna found and fixed camera-off request cleanup; three affected lifecycle cases passed in9.637s. Desktop/mobile pending screenshots inspected; no physical camera or live model used.
 
 - 2026-10-19: Added Desk demo — hand gestures through the existing JSON loader, keeping scrambled eggs first. Open palm, fist, thumbs up and OK sign use real camera/model observations; final finish remains manual. Eight focused recipe/config tests passed in0.033s. Docker rebuilt with data retained and API confirmed both recipes, demo has no ingredients and four steps. Physical gesture recognition remains for user testing.
 

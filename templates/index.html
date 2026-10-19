@@ -14,10 +14,14 @@
   <a class="skip-link" href="#main">Skip to cooking workspace</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Sous home"><span class="brand-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><circle cx="9.5" cy="12" r="5.5"/><path d="M15 12h6.5"/></svg></span><span>Sous</span></a>
+    <nav class="app-nav" id="app-nav" aria-label="Main navigation" hidden>
+      <button class="nav-button active" id="nav-cooking" type="button" aria-current="page">Cooking</button>
+      <button class="nav-button" id="nav-settings" type="button">Settings</button>
+    </nav>
     <div class="connection-state" id="connection-state"><span class="state-dot" aria-hidden="true"></span><span id="connection-label">Connecting</span></div>
   </header>
 
-  <main id="main" class="shell">
+  <main id="main" class="shell" tabindex="-1">
     <section id="loading-panel" class="loading-panel" aria-live="polite">
       <span class="loading-mark" aria-hidden="true"></span>
       <p>Loading Sous…</p>
@@ -25,7 +29,7 @@
 
     <section id="setup-panel" class="setup-panel" hidden>
       <header class="setup-header">
-        <h1>Start a cooking session</h1>
+          <h1>Start a cooking session</h1>
         <p class="lede">Choose a recipe and how Sous should guide you. You control every step.</p>
       </header>
       <form id="setup-form" class="setup-form">
@@ -38,16 +42,23 @@
         </div>
         <div class="setup-options">
           <h2 class="pane-title">Guidance</h2>
-          <div class="field">
-            <label for="provider-select">Provider</label>
-            <select id="provider-select" name="provider" required></select>
-            <p class="field-help">Only providers configured on this computer are listed.</p>
-          </div>
-          <div class="field">
-            <label for="model-input">Model</label>
-            <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model ID" required>
-            <p class="field-help">Uses the provider’s default when one is set.</p>
-          </div>
+          <p class="guidance-summary" id="guidance-summary">Choose a configured model to guide this recipe.</p>
+          <div id="provider-locked-notice" class="settings-callout" hidden role="status"><p>Bedrock is the saved default, but its settings are locked. Unlock it to start a session.</p><button class="button button-secondary button-small" id="settings-unlock-link" type="button">Open Settings</button></div>
+          <details class="override-details" id="provider-overrides">
+            <summary>Choose a different provider for this session</summary>
+            <div class="override-fields">
+              <div class="field">
+                <label for="provider-select">Provider</label>
+                <select id="provider-select" name="provider" required></select>
+                <p class="field-help">Only configured providers can start a session.</p>
+              </div>
+              <div class="field">
+                <label for="model-input">Model</label>
+                <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model ID" required>
+                <p class="field-help">Uses the provider’s saved default when one is set.</p>
+              </div>
+            </div>
+          </details>
           <fieldset class="field mode-field">
             <legend>How should Sous guide you?</legend>
             <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Speak up for step changes, timer, or something to check.</small></span></label>
@@ -59,6 +70,73 @@
           </div>
         </div>
       </form>
+    </section>
+
+    <section id="settings-panel" class="settings-panel" hidden aria-labelledby="settings-title">
+      <header class="settings-header">
+        <h1 id="settings-title" tabindex="-1">Settings</h1>
+        <p class="lede">Manage the model Sous uses and how often it checks a still image. Saving credentials does not test AWS access.</p>
+      </header>
+
+      <section class="settings-section panel" aria-labelledby="vault-heading">
+        <div class="settings-section-head"><div><h2 id="vault-heading">Encrypted settings vault</h2><p id="vault-status" class="settings-status" role="status">Loading vault status…</p></div></div>
+        <form id="vault-init-form" class="settings-form vault-form" hidden>
+          <p class="field-help">Create a passphrase with at least 12 characters. You will need it after each server restart; it cannot be recovered.</p>
+          <div class="field"><label for="vault-init-passphrase">Passphrase</label><input id="vault-init-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div>
+          <div class="field"><label for="vault-confirm-passphrase">Confirm passphrase</label><input id="vault-confirm-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div>
+          <p class="settings-error" id="vault-init-error" role="status" hidden></p>
+          <button class="button button-primary" type="submit">Create vault</button>
+        </form>
+        <form id="vault-unlock-form" class="settings-form vault-form" hidden>
+          <p class="field-help">Unlock saved Bedrock settings for this server run.</p>
+          <div class="field"><label for="vault-unlock-passphrase">Passphrase</label><input id="vault-unlock-passphrase" type="password" maxlength="1024" autocomplete="current-password" required></div>
+          <p class="settings-error" id="vault-unlock-error" role="status" hidden></p>
+          <button class="button button-primary" type="submit">Unlock settings</button>
+        </form>
+        <div id="vault-locked-controls" class="settings-actions" hidden><button class="button button-secondary" id="vault-lock-button" type="button">Lock vault</button></div>
+      </section>
+
+      <section class="settings-section panel" aria-labelledby="bedrock-heading">
+        <div class="settings-section-head"><div><h2 id="bedrock-heading">AWS Bedrock</h2><p id="bedrock-status" class="settings-status" role="status">No saved connection</p></div><span class="badge settings-source" id="bedrock-source">Not configured</span></div>
+        <div id="bedrock-locked-callout" class="settings-callout" hidden role="status"><p>Unlock the vault to view or change the saved connection. The credential fields are never returned to this page.</p></div>
+        <form id="bedrock-form" class="settings-form" autocomplete="off">
+          <div class="field"><label for="bedrock-region">AWS region</label><input id="bedrock-region" name="region" type="text" maxlength="32" placeholder="us-east-1" autocomplete="off" spellcheck="false" required><p class="field-help">Changing region refreshes the available model list.</p></div>
+          <div class="field"><label for="bedrock-access-key">Access key ID</label><input id="bedrock-access-key" name="access_key_id" type="password" maxlength="128" autocomplete="new-password" spellcheck="false"><p class="field-help">Leave blank to keep the saved key. Replace the ID and secret together.</p></div>
+          <div class="field"><label for="bedrock-secret-key">Secret access key</label><input id="bedrock-secret-key" name="secret_access_key" type="password" maxlength="256" autocomplete="new-password" spellcheck="false"><p class="field-help">This field is always blank when Settings opens.</p></div>
+          <div class="field"><label for="bedrock-session-token">Session token <span>(optional)</span></label><input id="bedrock-session-token" name="session_token" type="password" maxlength="8192" autocomplete="new-password" spellcheck="false"></div>
+          <label class="check-choice" id="remove-token-choice"><input id="remove-session-token" type="checkbox"><span>Remove the saved session token</span></label>
+          <p class="field-help credential-replacement-note" id="credential-replacement-note" hidden>Saving a replacement key pair removes the old session token unless you enter a new one.</p>
+          <div class="settings-form-actions"><button class="button button-primary" id="save-bedrock" type="submit">Save connection</button><button class="button button-secondary" id="delete-bedrock" type="button" hidden>Remove connection</button></div>
+          <p class="settings-error" id="bedrock-error" role="status" hidden></p>
+        </form>
+        <div class="model-discovery" id="model-discovery">
+          <div class="field"><label for="bedrock-model-picker">Available image models</label><select id="bedrock-model-picker" disabled><option value="">Load models after saving a connection</option></select></div>
+          <div class="settings-actions"><button class="button button-secondary" id="discover-models" type="button" disabled>Load available models</button><button class="button button-ghost" id="use-custom-model" type="button">Enter a model ID manually</button></div>
+          <p class="field-help" id="model-discovery-note">Model listing is metadata only. It does not check whether your account can invoke a model.</p>
+          <p class="settings-error" id="model-error" role="status" hidden></p>
+        </div>
+        <div class="field custom-model-field" id="custom-model-field" hidden><label for="bedrock-model">Model or inference profile ID</label><input id="bedrock-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model or profile ID"><div class="settings-form-actions"><button class="button button-secondary button-small" id="save-model" type="button">Save model ID</button><button class="button button-ghost button-small" id="default-bedrock-model" type="button">Save as Bedrock default</button></div></div>
+      </section>
+
+      <section class="settings-section panel" aria-labelledby="defaults-heading">
+        <div class="settings-section-head"><div><h2 id="defaults-heading">Default for new sessions</h2><p>Existing cooking sessions keep their selected provider and model.</p></div></div>
+        <form id="defaults-form" class="settings-form defaults-form">
+          <div class="field"><label for="default-provider">Provider</label><select id="default-provider" required></select></div>
+          <div class="field"><label for="default-model">Model</label><input id="default-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" required></div>
+          <p class="field-help" id="defaults-lock-help" hidden>Unlock the vault to save provider defaults.</p>
+          <p class="settings-error" id="defaults-error" role="status" hidden></p>
+          <button class="button button-primary" id="save-defaults" type="submit">Save default</button>
+        </form>
+      </section>
+
+      <section class="settings-section panel" aria-labelledby="interval-heading">
+        <div class="settings-section-head"><div><h2 id="interval-heading">Snapshot interval</h2><p>How often Sous requests a camera still while guidance is on.</p></div></div>
+        <form id="interval-form" class="settings-form interval-form">
+          <div class="field"><label for="sample-interval">Seconds between checks</label><input id="sample-interval" type="number" min="1" max="15" step="1" required><p class="field-help">A shorter interval can increase cloud usage. Analyses do not overlap.</p></div>
+          <p class="settings-error" id="interval-error" role="status" hidden></p>
+          <button class="button button-secondary" id="save-interval" type="submit">Save interval</button>
+        </form>
+      </section>
     </section>
 
     <section id="session-panel" class="session-panel" hidden aria-label="Cooking session">
@@ -74,6 +152,11 @@
         <svg class="icon notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>
         <div class="notice-copy"><strong>Welcome back.</strong><span>Your recipe is saved. Camera guidance is paused until you resume.</span></div>
         <button class="button button-primary button-small" id="restore-resume" type="button">Resume guidance</button>
+      </div>
+      <div id="bedrock-session-locked-notice" class="notice restore-notice" hidden role="status">
+        <svg class="icon notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 11V8.5a3 3 0 0 1 6 0V11"/><rect x="7.5" y="11" width="9" height="7" rx="1"/></svg>
+        <div class="notice-copy"><strong>Bedrock settings are locked.</strong><span>Step controls and timers are ready. Unlock Settings before resuming camera guidance.</span></div>
+        <button class="button button-primary button-small" id="session-unlock-link" type="button">Open Settings</button>
       </div>
       <div id="recipe-unavailable" class="notice recipe-unavailable" hidden role="status">
         <svg class="icon notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></svg>
@@ -128,7 +211,7 @@
           </section>
 
           <section class="panel camera-panel" aria-labelledby="camera-heading">
-            <div class="panel-head"><div><h2 id="camera-heading">Kitchen view</h2><p id="camera-caption">Camera is off</p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
+            <div class="panel-head"><div><h2 id="camera-heading">Kitchen view</h2><p class="camera-caption"><span id="camera-caption">Camera is off</span><span class="thinking-dots" id="analysis-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
             <div class="video-frame" id="video-frame">
               <video id="camera-video" autoplay muted playsinline aria-label="Live kitchen camera preview" hidden></video>
               <div class="camera-empty" id="camera-empty"><svg class="icon camera-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><p>Turn on the camera when you’re ready.</p></div>

@@ -134,3 +134,39 @@ User requested a recipe that can be tested at a desk without cooking materials. 
 ### Desk demo return
 
 Luna added four poses and usage instructions, then corrected final-step copy to explicitly require Finish cooking. Codex inspected data/docs, ran eight focused loader/config tests successfully, rebuilt Compose retaining data, and confirmed API lists the default recipe followed by desk-demo with four steps and no ingredients. No UI/engine/provider changes or physical-camera tests. Gesture reliability is not guaranteed; manual Next and final Finish remain available.
+
+### U4 thinking dots dispatch
+
+User requested a new UI branch and Opus/Luna work, starting with analysis thinking dots. Root created feature/ui-thinking-dots from clean main. Opus sole writer for template/CSS/JS and focused browser tests, using Frontend UI Engineering guidance: three subtle decorative dots during actual inference, accessible status text, reduced-motion support and terminal/cancellation cleanup. No backend/model changes. Luna reviews stable diff after implementation; Codex owns docs/tests/commit/local Compose rebuild.
+
+User turned Ollama off during U4. UI checks use synthetic test responses only; defer live inference until the final test session.
+
+### U4 implementation and review
+
+Opus added CSS thinking dots, decorative markup, an analysis visual-state helper and a synthetic pending-request browser test. Initial isolated WebKit suite passed8 executed cases plus1 optional live skip in27.885s. Root inspected desktop/mobile pending captures. Luna review found camera-off hid dots without aborting the pending client request. Luna applied a bounded follow-up in JS/tests: camera-off aborts the request and clears obsolete pending text; pause restores the camera preview caption. Root verifies affected lifecycle cases before commit. No live Ollama requests or personal browser access.
+
+### U4 verification
+
+Root observed3 affected WebKit cases pass in9.637s after Luna's follow-up, including camera-off abort/cleared pending text, reduced motion, pause/end cancellation, delayed permission lifecycle and synthetic response/timer race. JS syntax and diff checks passed. Main remains unchanged; verified implementation stays on feature/ui-thinking-dots. Local Docker update preserves named storage; live inference deferred until user restarts Ollama.
+
+### S1 secure Bedrock backend dispatch
+
+User requested in-app Bedrock credentials/settings, model selection, Settings page and UI restructuring on current branch; explicitly accepted passphrase unlock after restart. Also requested snapshot interval setting default10, max15 (implemented range1–15 integer seconds). Root wrote docs/settings.md threat model/API/UI contract. Luna completed read-only UI integration planning, recommending internal views and preserving current IDs. Opus sole writer for vault/backend/provider/API tests/dependency/Docker module copy; no UI writes until handoff. Managed secrets encrypted at rest with in-memory unlock key, no environment mutation or raw credentials in API/logs. Root verifies before Luna frontend work. Ollama stays off; existing untracked brag-output untouched.
+
+### S1 return/security fix and S2 handoff
+
+Opus implemented encrypted Fernet/Scrypt vault, nonsecret SQLite preferences, settings API, explicit Bedrock credentials and model discovery. Root installed cryptography49.0.0 and observed73 reported tests pass. Independent Luna security review found editable source metadata could permit locked environment fallback; reviewer fixed this as sole writer, added regressions and documented conservative behavior: any existing locked vault suppresses environment Bedrock until authenticated unlock. Final backend discovery passed75 reported tests in6.582s (optional browser class/two container cases skipped). Root commits backend before Luna UI integration. Discovery GET requires CSRF header; locked Bedrock safe fields are null; defaults may be null until saved. No real AWS requests or credential reads.
+
+### S2 implementation, review and verification
+
+Luna added internal Cooking/Settings navigation, vault forms, write-only credential fields, Bedrock discovery/custom IDs, saved defaults and interval control. Settings pauses/cancels guidance and preserves an existing local preview; explicit settings-view guards block all frame requests. Returning remains paused. Independent review found recipe selection reset and stale typed model/default pairing; both fixed and regression-covered. Root testing found Lock stayed disabled after unlock; fixed and verified through a second lock/unlock cycle. Test-harness fixes covered native option attachment, awaited JSON, explicit expected403/502 responses and setup visibility/required model fields. Existing assertions retained.
+
+Final evidence: backend discovery after UI passed76 reported cases in7.064s (5 optional skips). Browser scenarios:11 passed in the full run with3 later corrected failures and1 live skip; the3 affected scenarios then passed in12.261s, covering all14 non-live scenarios across runs. Includes actual1/15-second scheduler configuration, no frames in Settings, pending camera-permission invalidation, saved default versus active session identity, secret fields/responses/storage, discovery failure/custom ID and lock/unlock. Desktop/mobile Settings captures inspected. Two actual Docker persistence tests passed in6.571s, including encrypted vault restart into locked state and retained15-second preference. No live AWS/Ollama calls, physical camera, personal browser, or real credentials. Root stops only disposable test stack without deleting volume and rebuilds normal5050 app before commit.
+
+### Settings delivery
+
+Final normal image rebuilt; in-image discovery passed 76 reported tests in 4.058s (5 optional skips). Normal stack serves HTTP200 on5050, with uninitialized locked vault and 10-second default confirmed via safe status fields only. Dedicated test stack stopped, volume retained. Reviewer confirmed recipe/default and lock-button fixes resolved. Root commits UI and documentation on the existing feature branch; no merge/push. User enters real Bedrock keys through Settings, not agent tools; live cloud invocation remains unverified.
+
+### User validation and commit handoff
+
+User configured Bedrock and ran the desk demo. Root's read-only session inspection confirmed real Nova Lite inference and automatic palm-to-fist advancement; fist then had one qualifying95% observation. No keys or image data read by agents. User requested all app work committed and will handle push/MR. Existing app changes already committed; root records live validation in docs and commits it. Separate Opus task owns untracked brag-output/; do not stage, alter or interrupt it.

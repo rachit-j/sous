@@ -6,6 +6,9 @@
   const START_LABEL = 'Start cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
   const state = {
     config: null,
+    settings: null,
+    settingsView: false,
+    discoveredModels: [],
     recipe: null,
     session: null,
     camera: null,
@@ -71,20 +74,62 @@
     $("#voice-message").classList.toggle("error", isError);
   }
 
-  function fillSetup(config) {
+  function fillSetup(config, applySavedDefaults = false) {
     const recipes = config.recipes || [];
-    const providers = (config.providers || []).filter((provider) => provider.configured);
+    const providers = config.providers || [];
     const recipeSelect = $("#recipe-select");
+    const previousRecipe = recipeSelect.value;
     recipeSelect.replaceChildren();
     recipes.forEach((recipe) => recipeSelect.add(new Option(recipe.name, recipe.id)));
+    if (recipes.some((recipe) => recipe.id === previousRecipe)) recipeSelect.value = previousRecipe;
     const providerSelect = $("#provider-select");
+    const previousProvider = providerSelect.value;
     providerSelect.replaceChildren();
-    providers.forEach((provider) => providerSelect.add(new Option(provider.name, provider.id)));
-    $("#start-session").disabled = providers.length === 0 || recipes.length === 0;
-    if (providers.length === 0) showToast("No cooking guide is configured on this computer. Configure a provider on the server, then reload.", true);
-    if (providers.length) providerSelect.value = providers[0].id;
-    updateModelDefault();
+    providers.forEach((provider) => {
+      const option = new Option(provider.name, provider.id);
+      option.disabled = !provider.configured;
+      providerSelect.add(option);
+    });
+    const savedProvider = config.defaults?.provider;
+    const configuredDefault = providers.find((provider) => provider.id === savedProvider && provider.configured);
+    const desiredProvider = savedProvider
+      ? providers.find((provider) => provider.id === savedProvider)
+      : (configuredDefault || providers.find((provider) => provider.configured) || providers[0]);
+    if (desiredProvider) providerSelect.value = desiredProvider.id;
+    const providerChanged = previousProvider !== providerSelect.value;
+    if (applySavedDefaults || providerChanged) {
+      $("#model-input").dataset.touched = "";
+      $("#model-input").dataset.provider = providerSelect.value;
+      $("#model-input").value = "";
+    }
+    updateModelDefault(applySavedDefaults || providerChanged);
     updateRecipePeek();
+    renderGuidanceSummary();
+    updateStartAvailability();
+  }
+
+  function renderGuidanceSummary() {
+    const provider = state.config?.providers?.find((item) => item.id === $("#provider-select").value);
+    const model = $("#model-input").value.trim() || provider?.default_model || "model not selected";
+    $("#guidance-summary").textContent = provider ? `${provider.name} · ${model}` : "Choose a configured model to guide this recipe.";
+    const defaultProvider = state.config?.providers?.find((item) => item.id === state.config?.defaults?.provider);
+    const unavailableDefault = Boolean(state.config?.defaults?.provider && !defaultProvider?.configured);
+    $("#provider-locked-notice").hidden = !unavailableDefault;
+    if (unavailableDefault) {
+      $("#provider-locked-notice p").textContent = defaultProvider?.id === "bedrock" && defaultProvider.locked
+        ? "Bedrock is the saved default, but its settings are locked. Unlock it to start a session."
+        : `${defaultProvider?.name || "The saved provider"} is not configured. Configure it in Settings or choose a session override.`;
+    }
+  }
+
+  function updateStartAvailability() {
+    const provider = state.config?.providers?.find((item) => item.id === $("#provider-select").value);
+    $("#start-session").disabled = !provider?.configured || !(state.config?.recipes || []).length;
+  }
+
+  function bedrockLockedForSession() {
+    return state.session?.provider === "bedrock"
+      && state.config?.providers?.find((provider) => provider.id === "bedrock")?.locked === true;
   }
 
   function updateRecipePeek() {
@@ -140,16 +185,387 @@
     return `${count} ${noun}${count === 1 ? "" : "s"}`;
   }
 
-  function updateModelDefault() {
+  function updateModelDefault(force = false) {
     const provider = state.config?.providers?.find((item) => item.id === $("#provider-select").value);
     const input = $("#model-input");
-    if (!input.dataset.touched || !input.value.trim()) input.value = provider?.default_model || "";
+    if (force || !input.dataset.touched || input.dataset.provider !== provider?.id || !input.value.trim()) {
+      input.value = provider?.default_model || "";
+      input.dataset.touched = "";
+      input.dataset.provider = provider?.id || "";
+    }
+    renderGuidanceSummary();
+    updateStartAvailability();
+  }
+
+  function setActiveNav(settingsView) {
+    state.settingsView = settingsView;
+    $("#nav-cooking").classList.toggle("active", !settingsView);
+    $("#nav-settings").classList.toggle("active", settingsView);
+    if (settingsView) $("#nav-settings").setAttribute("aria-current", "page");
+    else $("#nav-settings").removeAttribute("aria-current");
+    if (!settingsView) $("#nav-cooking").setAttribute("aria-current", "page");
+    else $("#nav-cooking").removeAttribute("aria-current");
+  }
+
+  function clearSettingsSecrets() {
+    ["#vault-init-passphrase", "#vault-confirm-passphrase", "#vault-unlock-passphrase",
+      "#bedrock-access-key", "#bedrock-secret-key", "#bedrock-session-token"].forEach((selector) => {
+      const input = $(selector);
+      if (input) input.value = "";
+    });
+    $("#remove-session-token").checked = false;
+  }
+
+  function setFormError(selector, message = "") {
+    const node = $(selector);
+    node.textContent = message;
+    node.hidden = !message;
+  }
+
+  function renderSettings() {
+    const settings = state.settings;
+    if (!settings) return;
+    const initialized = Boolean(settings.vault.initialized);
+    const unlocked = initialized && !settings.vault.locked;
+    $("#vault-init-form").hidden = initialized;
+    $("#vault-unlock-form").hidden = !initialized || unlocked;
+    $("#vault-locked-controls").hidden = !unlocked;
+    $("#vault-lock-button").disabled = !unlocked;
+    $("#vault-status").textContent = !initialized
+      ? "Not initialized. Create a passphrase to save Bedrock credentials."
+      : unlocked ? "Unlocked for this server run." : "Locked. Unlock after a restart to use saved Bedrock settings.";
+
+    const bedrock = settings.bedrock || {};
+    const source = bedrock.source || "none";
+    $("#bedrock-source").textContent = initialized && !unlocked ? "Vault locked" : source === "managed" ? "Saved in vault" : source === "environment" ? "Server environment" : "Not configured";
+    $("#bedrock-status").textContent = initialized && !unlocked
+      ? "Unlock to view Bedrock connection details/status."
+      : bedrock.has_credentials === true
+      ? `Saved connection${bedrock.region ? ` · ${bedrock.region}` : ""}${bedrock.has_session_token ? " · session token saved" : ""}`
+      : source === "environment" ? "Using server environment credentials." : "No saved Bedrock credentials.";
+    $("#bedrock-locked-callout").hidden = unlocked;
+    $("#bedrock-locked-callout p").textContent = initialized
+      ? "Unlock the vault to view or change the saved connection. The credential fields are never returned to this page."
+      : "Create a vault passphrase before saving Bedrock credentials. The credential fields are never returned to this page.";
+    $("#bedrock-form").querySelectorAll("input, button").forEach((node) => { node.disabled = !unlocked; });
+    $("#bedrock-form").querySelectorAll("input[type=text]").forEach((node) => { node.readOnly = !unlocked; });
+    $("#bedrock-region").value = bedrock.region || "";
+    $("#bedrock-model").value = bedrock.model || "";
+    $("#bedrock-access-key").value = "";
+    $("#bedrock-secret-key").value = "";
+    $("#bedrock-session-token").value = "";
+    $("#remove-token-choice").hidden = bedrock.has_session_token !== true;
+    $("#credential-replacement-note").hidden = bedrock.has_credentials !== true;
+    $("#delete-bedrock").hidden = bedrock.has_credentials !== true || !unlocked;
+    $("#model-discovery").hidden = !unlocked;
+    const regionMatches = (bedrock.region || "") === $("#bedrock-region").value.trim();
+    $("#discover-models").disabled = !unlocked || bedrock.has_credentials !== true || !regionMatches;
+    $("#bedrock-model-picker").disabled = !unlocked || bedrock.has_credentials !== true || !regionMatches;
+    $("#custom-model-field").hidden = !unlocked;
+    if (!unlocked || !bedrock.has_credentials) resetModelPicker();
+
+    const defaults = settings.defaults || {};
+    const providerSelect = $("#default-provider");
+    providerSelect.replaceChildren();
+    (state.config?.providers || []).forEach((provider) => providerSelect.add(new Option(provider.name, provider.id)));
+    const firstConfigured = (state.config?.providers || []).find((provider) => provider.configured);
+    providerSelect.value = defaults.provider || firstConfigured?.id || "bedrock";
+    const selectedDefault = state.config?.providers?.find((provider) => provider.id === providerSelect.value);
+    $("#default-model").value = defaults.model || bedrock.model || selectedDefault?.default_model || "";
+    $("#default-provider").disabled = !unlocked;
+    $("#default-model").disabled = !unlocked;
+    $("#save-defaults").disabled = !unlocked;
+    $("#defaults-lock-help").hidden = unlocked;
+    $("#sample-interval").value = String(settings.sample_interval ?? 10);
+    $("#sample-interval").disabled = false;
+    $("#save-interval").disabled = false;
+    clearSettingsSecrets();
+    renderGuidanceSummary();
+    updateStartAvailability();
+  }
+
+  function resetModelPicker(message = "Load models after saving a connection") {
+    state.discoveredModels = [];
+    const picker = $("#bedrock-model-picker");
+    picker.replaceChildren(new Option(message, ""));
+    $("#model-discovery-note").textContent = "Model listing is metadata only. It does not check whether your account can invoke a model.";
+  }
+
+  async function refreshSettingsState() {
+    const [settings, config] = await Promise.all([api("/api/settings"), api("/api/config")]);
+    const previousDefaults = JSON.stringify(state.config?.defaults || null);
+    state.settings = settings;
+    state.config = config;
+    renderSettings();
+    fillSetup(config, previousDefaults !== JSON.stringify(config.defaults || null));
+  }
+
+  async function showSettings() {
+    if (state.settingsView) return;
+    $("#nav-settings").disabled = true;
+    if (state.session?.status === "active") {
+      // Invalidate a pending permission prompt; a late stream will be stopped by enableCamera's generation guard.
+      if (state.cameraRequestPending) {
+        state.cameraRequestId += 1;
+        state.cameraRequestPending = false;
+      }
+      clearInterval(state.captureTimer);
+      state.captureTimer = null;
+      $("#analyze-now").disabled = true;
+      cancelObservationRequest();
+      try {
+        await runAction("pause", {}, { announce: false, silent: true });
+      } catch (error) {
+        showToast(error.message || "Pause guidance before opening Settings.", true);
+        updateCaptureLoop();
+        $("#camera-toggle").disabled = state.session?.status !== "active";
+        $("#nav-settings").disabled = false;
+        return;
+      }
+    }
+    cancelObservationRequest();
+    if (state.listening && state.recognition) {
+      state.listening = false;
+      state.restartRecognition = false;
+      try { state.recognition.stop(); } catch { /* inactive */ }
+      $("#voice-toggle").textContent = "Start listening";
+      setVoiceMessage("Voice input is off while Settings is open.");
+    }
+    clearSettingsSecrets();
+    $("#setup-panel").hidden = true;
+    $("#session-panel").hidden = true;
+    $("#completion-panel").hidden = true;
+    $("#settings-panel").hidden = false;
+    setActiveNav(true);
+    $("#nav-settings").disabled = false;
+    $("#settings-title").focus({ preventScroll: true });
+    try { await refreshSettingsState(); } catch (error) { showToast(error.message, true); }
+  }
+
+  function showCooking() {
+    if (!state.settingsView) return;
+    clearSettingsSecrets();
+    $("#settings-panel").hidden = true;
+    if (state.session?.status === "active") {
+      $("#session-panel").hidden = false;
+      $("#setup-panel").hidden = true;
+      renderSession();
+    } else if (state.session?.status === "completed" || state.session?.status === "ended") {
+      $("#completion-panel").hidden = false;
+    } else {
+      $("#setup-panel").hidden = false;
+    }
+    setActiveNav(false);
+    $("#main").focus({ preventScroll: true });
+  }
+
+  async function saveBedrockConnection({ model, asDefault = false } = {}) {
+    const region = $("#bedrock-region").value.trim();
+    const accessKey = $("#bedrock-access-key").value.trim();
+    const secretKey = $("#bedrock-secret-key").value;
+    const token = $("#bedrock-session-token").value;
+    if (Boolean(accessKey) !== Boolean(secretKey)) {
+      setFormError("#bedrock-error", "Enter both the access key ID and secret access key to replace credentials.");
+      return;
+    }
+    const body = { region, model: model ?? $("#bedrock-model").value.trim() };
+    if (accessKey && secretKey) {
+      body.access_key_id = accessKey;
+      body.secret_access_key = secretKey;
+    }
+    if (token) body.session_token = token;
+    else if ($("#remove-session-token").checked && !(accessKey && secretKey)) body.clear_session_token = true;
+    setFormError("#bedrock-error");
+    $("#save-bedrock").disabled = true;
+    try {
+      await api("/api/settings/bedrock", { method: "PUT", body: JSON.stringify(body) });
+      clearSettingsSecrets();
+      if (asDefault) {
+        const chosenModel = body.model;
+        await api("/api/settings/defaults", { method: "PUT", body: JSON.stringify({ provider: "bedrock", model: chosenModel }) });
+      }
+      await refreshSettingsState();
+      setFormError("#bedrock-error", "Saved. Sous has not tested AWS access.");
+      $("#bedrock-error").classList.remove("settings-error");
+      $("#bedrock-error").classList.add("settings-success");
+      setTimeout(() => $("#bedrock-error").classList.remove("settings-success"), 5000);
+    } catch (error) {
+      setFormError("#bedrock-error", error.message);
+      $("#bedrock-error").classList.remove("settings-success");
+    } finally {
+      $("#save-bedrock").disabled = !state.settings || state.settings.vault.locked;
+    }
+  }
+
+  async function discoverBedrockModels() {
+    setFormError("#model-error");
+    $("#discover-models").disabled = true;
+    $("#discover-models").textContent = "Loading models…";
+    try {
+      const result = await api("/api/settings/bedrock/models", { headers: { "X-CSRF-Token": csrfToken } });
+      state.discoveredModels = result.models || [];
+      const picker = $("#bedrock-model-picker");
+      picker.replaceChildren(new Option(state.discoveredModels.length ? "Choose a model" : "No models listed", ""));
+      state.discoveredModels.forEach((model) => {
+        const suffix = model.kind === "inference_profile" ? " · inference profile" : "";
+        picker.add(new Option(`${model.name}${suffix}`, model.id));
+      });
+      picker.disabled = !state.discoveredModels.length;
+      if (result.warning) $("#model-discovery-note").textContent = result.warning;
+      else $("#model-discovery-note").textContent = "Model listing is metadata only. It does not check whether your account can invoke a model.";
+    } catch (error) {
+      resetModelPicker("Model list unavailable");
+      $("#bedrock-model-picker").disabled = false;
+      setFormError("#model-error", `${error.message} You can still enter a model or inference profile ID manually.`);
+      $("#custom-model-field").hidden = false;
+    } finally {
+      $("#discover-models").textContent = "Load available models";
+      $("#discover-models").disabled = state.settings?.vault?.locked || state.settings?.bedrock?.has_credentials !== true;
+    }
+  }
+
+  function chooseDiscoveredModel() {
+    const model = state.discoveredModels.find((item) => item.id === $("#bedrock-model-picker").value);
+    if (!model) return;
+    $("#bedrock-model").value = model.id;
+    $("#custom-model-field").hidden = false;
+  }
+
+  async function saveDefaults(event) {
+    event.preventDefault();
+    setFormError("#defaults-error");
+    $("#save-defaults").disabled = true;
+    try {
+      await api("/api/settings/defaults", { method: "PUT", body: JSON.stringify({
+        provider: $("#default-provider").value,
+        model: $("#default-model").value.trim(),
+      }) });
+      await refreshSettingsState();
+      setFormError("#defaults-error", "Saved for new sessions.");
+      $("#defaults-error").classList.remove("settings-error");
+      $("#defaults-error").classList.add("settings-success");
+      setTimeout(() => $("#defaults-error").classList.remove("settings-success"), 5000);
+    } catch (error) {
+      setFormError("#defaults-error", error.message);
+    } finally {
+      $("#save-defaults").disabled = state.settings?.vault?.locked !== false;
+    }
+  }
+
+  async function saveSampleInterval(event) {
+    event.preventDefault();
+    const interval = Number($("#sample-interval").value);
+    setFormError("#interval-error");
+    if (!Number.isInteger(interval) || interval < 1 || interval > 15) {
+      setFormError("#interval-error", "Choose a whole number from 1 to 15 seconds.");
+      return;
+    }
+    $("#save-interval").disabled = true;
+    try {
+      const settings = await api("/api/settings/preferences", { method: "PUT", body: JSON.stringify({ sample_interval: interval }) });
+      state.settings.sample_interval = settings.sample_interval;
+      state.config.sample_interval = settings.sample_interval;
+      updateCaptureLoop();
+      setFormError("#interval-error", "Saved. New checks use this interval.");
+      $("#interval-error").classList.remove("settings-error");
+      $("#interval-error").classList.add("settings-success");
+      setTimeout(() => $("#interval-error").classList.remove("settings-success"), 5000);
+    } catch (error) {
+      setFormError("#interval-error", error.message);
+    } finally {
+      $("#save-interval").disabled = false;
+    }
+  }
+
+  async function initializeVault(event) {
+    event.preventDefault();
+    const passphrase = $("#vault-init-passphrase").value;
+    const confirmation = $("#vault-confirm-passphrase").value;
+    setFormError("#vault-init-error");
+    if (passphrase.length < 12 || passphrase.length > 1024) {
+      setFormError("#vault-init-error", "Use a passphrase between 12 and 1024 characters.");
+      clearSettingsSecrets();
+      return;
+    }
+    if (passphrase !== confirmation) {
+      setFormError("#vault-init-error", "The passphrases do not match.");
+      clearSettingsSecrets();
+      return;
+    }
+    $("#vault-init-form button[type=submit]").disabled = true;
+    try {
+      await post("/api/settings/vault", { passphrase });
+      await refreshSettingsState();
+      setFormError("#vault-init-error");
+    } catch (error) {
+      setFormError("#vault-init-error", error.message);
+    } finally {
+      clearSettingsSecrets();
+      $("#vault-init-form button[type=submit]").disabled = false;
+    }
+  }
+
+  async function unlockVault(event) {
+    event.preventDefault();
+    const passphrase = $("#vault-unlock-passphrase").value;
+    setFormError("#vault-unlock-error");
+    $("#vault-unlock-form button[type=submit]").disabled = true;
+    try {
+      await post("/api/settings/unlock", { passphrase });
+      await refreshSettingsState();
+      setFormError("#vault-unlock-error");
+    } catch (error) {
+      setFormError("#vault-unlock-error", error.message);
+    } finally {
+      clearSettingsSecrets();
+      $("#vault-unlock-form button[type=submit]").disabled = false;
+    }
+  }
+
+  async function lockVault() {
+    $("#vault-lock-button").disabled = true;
+    try {
+      await post("/api/settings/lock", {});
+      clearSettingsSecrets();
+      resetModelPicker("Unlock the vault to load models");
+      await refreshSettingsState();
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      $("#vault-lock-button").disabled = state.settings?.vault?.locked !== false;
+    }
+  }
+
+  async function removeBedrockConnection() {
+    setFormError("#bedrock-error");
+    $("#delete-bedrock").disabled = true;
+    try {
+      await api("/api/settings/bedrock", { method: "DELETE" });
+      clearSettingsSecrets();
+      resetModelPicker();
+      await refreshSettingsState();
+    } catch (error) {
+      setFormError("#bedrock-error", error.message);
+    } finally {
+      $("#delete-bedrock").disabled = state.settings?.bedrock?.has_credentials !== true;
+    }
+  }
+
+  function setModelDefaultProvider() {
+    const providerId = $("#default-provider").value;
+    const provider = state.config?.providers?.find((item) => item.id === providerId);
+    $("#default-model").value = providerId === "bedrock"
+      ? ($("#bedrock-model").value.trim() || provider?.default_model || "")
+      : (provider?.default_model || "");
   }
 
   async function boot() {
     try {
-      state.config = await api("/api/config");
+      const [config, settings] = await Promise.all([api("/api/config"), api("/api/settings")]);
+      state.config = config;
+      state.settings = settings;
       fillSetup(state.config);
+      renderSettings();
       const { session } = await api("/api/sessions/active");
       $("#loading-panel").hidden = true;
       if (session) {
@@ -169,6 +585,8 @@
         $("#setup-panel").hidden = false;
         setConnection("Ready to cook");
       }
+      $("#app-nav").hidden = false;
+      setActiveNav(false);
       state.timerLoop = setInterval(tickTimer, 250);
     } catch (error) {
       $("#loading-panel").hidden = true;
@@ -180,6 +598,11 @@
   function runAction(action, extra = {}, options = {}) {
     const operation = async () => {
       if (!state.session) throw new Error("There is no active cooking session.");
+      if (action === "resume" && bedrockLockedForSession()) {
+        const error = new Error("Unlock Bedrock settings before resuming camera guidance. Manual controls and timers are still available.");
+        showToast(error.message, true);
+        throw error;
+      }
       if (action !== "timer_ack") {
         state.uiGeneration += 1;
         cancelObservationRequest();
@@ -261,7 +684,9 @@
     $("#observation-panel").hidden = false;
     $("#voice-panel").hidden = false;
     $("#correct-details").hidden = false;
-    $("#monitoring-toggle").disabled = session.status !== "active";
+    const lockedBedrock = bedrockLockedForSession();
+    $("#monitoring-toggle").disabled = session.status !== "active" || lockedBedrock;
+    $("#bedrock-session-locked-notice").hidden = !lockedBedrock;
     $("#camera-toggle").disabled = session.status !== "active" || state.cameraRequestPending;
     $("#camera-toggle").textContent = state.camera ? "Turn off camera" : "Turn on camera";
     $("#voice-toggle").disabled = false;
@@ -300,7 +725,7 @@
     $("#finish-button").disabled = session.status !== "active";
     $("#monitoring-toggle").textContent = session.monitoring ? "Pause guidance" : "Resume guidance";
     $("#restore-notice").hidden = !state.restored || session.monitoring || session.status !== "active";
-    $("#restore-resume").disabled = session.monitoring;
+    $("#restore-resume").disabled = session.monitoring || lockedBedrock;
     updateElapsedTime();
     $("#recipe-progress-label").textContent = `Step ${session.step_index + 1} of ${recipe.steps.length}`;
     renderRecipeLists();
@@ -338,6 +763,7 @@
     badge.classList.remove("active");
     badge.lastElementChild.textContent = "Guidance unavailable";
     $("#restore-notice").hidden = true;
+    $("#bedrock-session-locked-notice").hidden = !bedrockLockedForSession();
     renderEvents(session.events || []);
     updateTimerDisplay();
     setConnection("Recipe unavailable", "problem");
@@ -445,7 +871,7 @@
   function updateCaptureLoop() {
     clearInterval(state.captureTimer);
     state.captureTimer = null;
-    const canCapture = state.session?.status === "active" && state.recipe && state.session.monitoring && state.camera && document.visibilityState === "visible";
+    const canCapture = !state.settingsView && state.session?.status === "active" && state.recipe && state.session.monitoring && state.camera && document.visibilityState === "visible";
     $("#analyze-now").disabled = !canCapture || state.observationInFlight;
     if (canCapture) state.captureTimer = setInterval(() => captureAndAnalyze(false), (state.config?.sample_interval || 10) * 1000);
   }
@@ -515,15 +941,31 @@
     $("#camera-toggle").textContent = state.recipe ? "Turn on camera" : "Unavailable";
     $("#camera-toggle").disabled = !state.recipe || state.session?.status !== "active";
     $("#analyze-now").disabled = true;
+    cancelObservationRequest();
   }
 
   function cancelObservationRequest() {
+    const wasPending = state.observationInFlight;
     state.observationController?.abort();
     state.observationController = null;
+    setAnalysisPending(false);
+    if (wasPending) {
+      setCameraMessage("");
+      if (state.camera && $("#camera-caption").textContent === "Analyzing") {
+        $("#camera-caption").textContent = "Camera preview";
+      }
+    }
+  }
+
+  // Visual-only state for an in-flight observation request; camera-message carries the announcement.
+  function setAnalysisPending(pending) {
+    $("#analysis-dots").hidden = !pending;
+    if (pending) $("#observation-panel").setAttribute("aria-busy", "true");
+    else $("#observation-panel").removeAttribute("aria-busy");
   }
 
   async function captureAndAnalyze(manual) {
-    if (!state.session || !state.recipe || !state.camera || !state.session.monitoring || document.visibilityState !== "visible" || state.observationInFlight) return;
+    if (state.settingsView || !state.session || !state.recipe || !state.camera || !state.session.monitoring || document.visibilityState !== "visible" || state.observationInFlight) return;
     const video = $("#camera-video");
     if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
       if (manual) setCameraMessage("Camera is warming up. Try Analyze now again in a moment.");
@@ -542,7 +984,8 @@
     state.observationController = controller;
     state.observationInFlight = true;
     $("#analyze-now").disabled = true;
-    $("#camera-caption").textContent = "Analyzing…";
+    $("#camera-caption").textContent = "Analyzing";
+    setAnalysisPending(true);
     setCameraMessage("Analyzing… This first look can take a little longer while the local model wakes up.");
     try {
       const session = await post(`/api/sessions/${state.session.id}/observations`, { image, revision }, { signal: controller.signal });
@@ -566,7 +1009,9 @@
     } finally {
       state.observationInFlight = false;
       if (state.observationController === controller) state.observationController = null;
-      if (state.camera && $("#camera-caption").textContent === "Analyzing…") $("#camera-caption").textContent = "Camera preview";
+      // A cancelled request has already cleared the indicator; never clear one that belongs to a newer request.
+      if (!state.observationController) setAnalysisPending(false);
+      if (state.camera && $("#camera-caption").textContent === "Analyzing") $("#camera-caption").textContent = "Camera preview";
       updateCaptureLoop();
     }
   }
@@ -702,6 +1147,7 @@
   function cleanupSession() {
     stopCamera();
     cancelObservationRequest();
+    clearSettingsSecrets();
     if (state.recognition) {
       state.listening = false;
       state.recognition.onend = null;
@@ -777,10 +1223,46 @@
   }
 
   function bindEvents() {
+    $("#nav-cooking").addEventListener("click", showCooking);
+    $("#nav-settings").addEventListener("click", showSettings);
+    $("#settings-unlock-link").addEventListener("click", showSettings);
+    $("#session-unlock-link").addEventListener("click", showSettings);
     $("#setup-form").addEventListener("submit", createSession);
     $("#recipe-select").addEventListener("change", updateRecipePeek);
-    $("#provider-select").addEventListener("change", updateModelDefault);
-    $("#model-input").addEventListener("input", (event) => { event.currentTarget.dataset.touched = "true"; });
+    $("#provider-select").addEventListener("change", () => updateModelDefault(true));
+    $("#model-input").addEventListener("input", (event) => {
+      event.currentTarget.dataset.touched = "true";
+      event.currentTarget.dataset.provider = $("#provider-select").value;
+      renderGuidanceSummary();
+    });
+    $("#vault-init-form").addEventListener("submit", initializeVault);
+    $("#vault-unlock-form").addEventListener("submit", unlockVault);
+    $("#vault-lock-button").addEventListener("click", lockVault);
+    $("#bedrock-form").addEventListener("submit", (event) => { event.preventDefault(); saveBedrockConnection(); });
+    $("#delete-bedrock").addEventListener("click", removeBedrockConnection);
+    $("#discover-models").addEventListener("click", discoverBedrockModels);
+    $("#bedrock-model-picker").addEventListener("change", chooseDiscoveredModel);
+    $("#use-custom-model").addEventListener("click", () => { $("#custom-model-field").hidden = false; $("#bedrock-model").focus(); });
+    $("#save-model").addEventListener("click", () => saveBedrockConnection());
+    $("#default-bedrock-model").addEventListener("click", () => saveBedrockConnection({ asDefault: true }));
+    $("#bedrock-region").addEventListener("input", () => {
+      resetModelPicker("Region changed · load models again");
+      setFormError("#model-error");
+      const savedRegion = state.settings?.bedrock?.region || "";
+      const sameRegion = $("#bedrock-region").value.trim() === savedRegion;
+      $("#discover-models").disabled = !sameRegion || state.settings?.vault?.locked !== false || state.settings?.bedrock?.has_credentials !== true;
+      $("#bedrock-model-picker").disabled = true;
+      if (!sameRegion) $("#model-discovery-note").textContent = "Save the new region before loading its model list.";
+    });
+    $("#bedrock-access-key").addEventListener("input", () => {
+      $("#credential-replacement-note").hidden = !$("#bedrock-access-key").value;
+    });
+    $("#remove-session-token").addEventListener("change", (event) => {
+      $("#bedrock-session-token").disabled = event.currentTarget.checked || state.settings?.vault?.locked !== false;
+    });
+    $("#defaults-form").addEventListener("submit", saveDefaults);
+    $("#default-provider").addEventListener("change", setModelDefaultProvider);
+    $("#interval-form").addEventListener("submit", saveSampleInterval);
     $("#next-button").addEventListener("click", () => runAction("next").catch(() => {}));
     $("#back-button").addEventListener("click", () => runAction("back").catch(() => {}));
     $("#finish-button").addEventListener("click", finishCooking);
@@ -840,6 +1322,7 @@
       state.session = null;
       state.recipe = null;
       state.restored = false;
+      fillSetup(state.config || {}, true);
       $("#completion-panel").hidden = true;
       $("#setup-panel").hidden = false;
       $("#start-session").disabled = false;

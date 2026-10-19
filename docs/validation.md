@@ -6,6 +6,8 @@ MVP application and Docker packaging verified. Recipes are generic structured JS
 
 ## Observed checks
 
+- 2026-10-19 UI redesign: Claude Opus implemented grey/charcoal surfaces and restrained state colors using Impeccable and Frontend UI Engineering guidance. Unittest discovery passed48 reported cases in0.450s (46 unit/provider/recipe cases executed; optional browser class and two container cases skipped). Isolated WebKit suite passed7 cases with1 optional live-model skip in25.240s. Added setup preview checks, horizontal overflow checks and correction-form clipping checks at1280px/390px. Instant-scroll preparation plus explicit step/workspace alignment fixed a misleading capture during smooth scrolling. Final affected cooking/completion test passed in6.439s; setup/cooking/completion desktop/mobile screenshots inspected. JavaScript syntax and diff whitespace checks passed. Independent Luna static review found no actionable regressions. Local Compose rebuild succeeded with named storage retained; HTTP200 and new CSS served on5050. Provider inference was not repeated for this visual change.
+
 - 2026-10-19: `.venv/bin/python -m unittest discover -s tests -v` — 16 tests passed (0.214 s final B1 run). Coverage includes state persistence, navigation/corrections, timers, CSRF/origin protection, observation threshold/stale-result/busy handling with mocked provider module.
 - Docker CLI and Compose are installed; initial `docker info` could not connect because its daemon socket does not exist. Container runtime verification pending.
 - Docker Desktop was started through its official CLI; Docker server 29.8.2 now responds. Container build/run still pending packaging.

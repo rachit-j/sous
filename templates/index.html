@@ -4,175 +4,180 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <meta name="theme-color" content="#f5f3ed">
+  <meta name="theme-color" content="#f4f5f7">
   <link rel="icon" href="data:,">
-  <title>Sous — Cook with a little guidance</title>
+  <title>Sous — Cooking workspace</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to cooking workspace</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Sous home"><span class="brand-mark" aria-hidden="true">s</span><span>Sous</span></a>
-    <p class="topbar-note">A little help at the stove</p>
+    <a class="brand" href="/" aria-label="Sous home"><span class="brand-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><circle cx="9.5" cy="12" r="5.5"/><path d="M15 12h6.5"/></svg></span><span>Sous</span></a>
     <div class="connection-state" id="connection-state"><span class="state-dot" aria-hidden="true"></span><span id="connection-label">Connecting</span></div>
   </header>
 
   <main id="main" class="shell">
     <section id="loading-panel" class="loading-panel" aria-live="polite">
       <span class="loading-mark" aria-hidden="true"></span>
-      <p>Setting the table…</p>
+      <p>Loading Sous…</p>
     </section>
 
     <section id="setup-panel" class="setup-panel" hidden>
-      <div class="setup-intro">
-        <p class="eyebrow">Your kitchen, your pace</p>
-        <h1>Let’s make something good.</h1>
-        <p class="lede">A calm companion while you cook. You stay in control at every step.</p>
-      </div>
+      <header class="setup-header">
+        <h1>Start a cooking session</h1>
+        <p class="lede">Choose a recipe and how Sous should guide you. You control every step.</p>
+      </header>
       <form id="setup-form" class="setup-form">
-        <div class="form-main">
+        <div class="setup-recipe">
           <div class="field">
             <label for="recipe-select">Recipe</label>
             <select id="recipe-select" name="recipe_id" required></select>
           </div>
           <div class="recipe-peek" id="recipe-peek" aria-live="polite"></div>
         </div>
-        <div class="form-options">
+        <div class="setup-options">
+          <h2 class="pane-title">Guidance</h2>
           <div class="field">
-            <label for="provider-select">Cooking guide</label>
+            <label for="provider-select">Provider</label>
             <select id="provider-select" name="provider" required></select>
-            <p class="field-help">Only providers configured on this computer are available.</p>
+            <p class="field-help">Only providers configured on this computer are listed.</p>
           </div>
           <div class="field">
             <label for="model-input">Model</label>
-            <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" placeholder="Enter a model ID" required>
+            <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model ID" required>
             <p class="field-help">Uses the provider’s default when one is set.</p>
           </div>
           <fieldset class="field mode-field">
-            <legend>How much guidance?</legend>
+            <legend>How should Sous guide you?</legend>
             <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Speak up for step changes, timer, or something to check.</small></span></label>
             <label class="radio-choice"><input type="radio" name="mode" value="assistive"><span><strong>Talk me through it</strong><small>Also read each step aloud when you arrive.</small></span></label>
           </fieldset>
-        </div>
-        <div class="setup-footer">
-          <p class="privacy-note"><span class="privacy-icon" aria-hidden="true">✓</span> Camera stays off until you turn it on. Your hands-on controls work without it.</p>
-          <button class="button button-primary" type="submit" id="start-session">Start cooking <span aria-hidden="true">↗</span></button>
+          <div class="setup-footer">
+            <p class="privacy-note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><span>Camera stays off until you turn it on. Your hands-on controls work without it.</span></p>
+            <button class="button button-primary button-large" type="submit" id="start-session">Start cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
+          </div>
         </div>
       </form>
     </section>
 
     <section id="session-panel" class="session-panel" hidden aria-label="Cooking session">
-      <header class="session-heading">
-        <div>
-          <p class="eyebrow" id="session-recipe-name">Cooking session</p>
-          <h1 id="session-title">Let’s get started.</h1>
-        </div>
+      <header class="session-bar">
+        <h1 class="session-name"><span id="session-recipe-name">Cooking session</span><span class="visually-hidden">: </span><span class="visually-hidden" id="session-title">Let’s get started.</span></h1>
         <div class="session-badges">
-          <span class="mode-badge" id="mode-badge"></span>
-          <span class="monitoring-badge" id="monitoring-badge"><span class="state-dot" aria-hidden="true"></span><span></span></span>
+          <span class="badge mode-badge" id="mode-badge"></span>
+          <span class="badge monitoring-badge" id="monitoring-badge"><span class="state-dot" aria-hidden="true"></span><span></span></span>
         </div>
       </header>
 
-      <div id="restore-notice" class="restore-notice" hidden role="status">
-        <div><strong>Welcome back.</strong><span>Your recipe is saved. Camera guidance is paused until you resume.</span></div>
-        <button class="button button-small" id="restore-resume" type="button">Resume guidance</button>
+      <div id="restore-notice" class="notice restore-notice" hidden role="status">
+        <svg class="icon notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>
+        <div class="notice-copy"><strong>Welcome back.</strong><span>Your recipe is saved. Camera guidance is paused until you resume.</span></div>
+        <button class="button button-primary button-small" id="restore-resume" type="button">Resume guidance</button>
       </div>
-      <div id="recipe-unavailable" class="restore-notice recipe-unavailable" hidden role="status">
-        <div><strong>This session’s recipe is unavailable.</strong><span>You can still use the timer or end this session. Start a new session to choose an available recipe.</span></div>
+      <div id="recipe-unavailable" class="notice recipe-unavailable" hidden role="status">
+        <svg class="icon notice-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.5h.01"/></svg>
+        <div class="notice-copy"><strong>This session’s recipe is unavailable.</strong><span>You can still use the timer or end this session. Start a new session to choose an available recipe.</span></div>
       </div>
 
       <div class="workspace">
         <section class="cook-column" aria-label="Current cooking step">
-          <div class="step-progress" id="step-progress" aria-label="Recipe progress">
+          <div class="step-progress" id="step-progress">
             <div class="progress-copy"><span id="step-count">Step 1</span><span id="elapsed-time">Just started</span></div>
             <div class="progress-track" role="progressbar" id="progress-bar" aria-label="Recipe progress" aria-valuemin="1" aria-valuemax="1" aria-valuenow="1"><span id="progress-fill"></span></div>
           </div>
 
           <article class="current-step" id="current-step" aria-live="polite" aria-atomic="true">
-            <div class="step-kicker"><span class="step-number" id="step-number">01</span><span>Up next, right here</span></div>
-            <h2 id="step-title"></h2>
+            <div class="step-head"><span class="step-number" id="step-number" aria-hidden="true">01</span><h2 id="step-title"></h2></div>
             <p class="step-instruction" id="step-instruction"></p>
-            <div class="visual-cue"><span class="cue-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5h3l1.5-2h7l1.5 2h3a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 20 19.5H4A1.5 1.5 0 0 1 2.5 18V9A1.5 1.5 0 0 1 4 7.5Z"/><circle cx="12" cy="13" r="3.5"/></svg></span><div><strong>What to look for</strong><p id="visual-cue-text"></p></div></div>
+            <div class="visual-cue"><svg class="icon cue-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></svg><div><strong>What to look for</strong><p id="visual-cue-text"></p></div></div>
           </article>
 
           <div class="step-actions">
-            <button class="button button-quiet" id="back-button" type="button"><span aria-hidden="true">←</span> Back</button>
-            <div class="step-actions-right">
-              <details class="correct-details" id="correct-details">
-                <summary class="button button-quiet">Correct step</summary>
-                <form id="correct-form" class="correct-form">
-                  <label for="correct-select">We’re actually at</label>
-                  <select id="correct-select" required></select>
-                  <label for="correct-note">Note <span>(optional)</span></label>
-                  <input id="correct-note" maxlength="500" type="text" placeholder="What changed?">
-                  <button class="button button-small" type="submit">Update step</button>
-                </form>
-              </details>
-              <button class="button button-primary" id="next-button" type="button">Next step <span aria-hidden="true">→</span></button>
-              <button class="button button-primary" id="finish-button" type="button" hidden>Finish cooking <span aria-hidden="true">✓</span></button>
-            </div>
+            <button class="button button-secondary" id="back-button" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg> Back</button>
+            <details class="correct-details" id="correct-details">
+              <summary class="button button-secondary">Correct step <svg class="icon summary-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+              <form id="correct-form" class="correct-form">
+                <label for="correct-select">We’re actually at</label>
+                <select id="correct-select" required></select>
+                <label for="correct-note">Note <span>(optional)</span></label>
+                <input id="correct-note" maxlength="500" type="text" placeholder="What changed?">
+                <button class="button button-primary button-small" type="submit">Update step</button>
+              </form>
+            </details>
+            <button class="button button-primary button-large" id="next-button" type="button">Next step <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
+            <button class="button button-primary button-large button-finish" id="finish-button" type="button" hidden>Finish cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button>
           </div>
 
           <div class="manual-tools">
             <div class="manual-controls">
-              <button class="button button-outline" id="monitoring-toggle" type="button">Resume guidance</button>
-              <button class="button button-outline" id="end-session" type="button">End session</button>
+              <button class="button button-secondary button-small" id="monitoring-toggle" type="button">Resume guidance</button>
+              <button class="button button-ghost button-small" id="end-session" type="button">End session</button>
             </div>
             <p class="manual-caption">Step controls and timer work even when guidance is paused.</p>
           </div>
         </section>
 
         <aside class="side-column" aria-label="Kitchen tools and recipe">
-          <section class="camera-panel" aria-labelledby="camera-heading">
-            <div class="section-heading"><div><h2 id="camera-heading">Kitchen view</h2><p id="camera-caption">Camera is off</p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
+          <section class="panel timer-panel" aria-labelledby="timer-heading">
+            <div class="panel-head">
+              <div><h2 id="timer-heading">Timer</h2><p id="timer-status">No timer running</p></div>
+              <span class="timer-readout" id="timer-readout" aria-live="off">—:—</span>
+            </div>
+            <form id="timer-form" class="timer-form"><label class="visually-hidden" for="timer-minutes">Timer duration in minutes</label><input id="timer-minutes" type="number" min="0.02" max="1440" step="any" placeholder="Minutes" inputmode="decimal"><button class="button button-secondary button-small" type="submit">Start</button><button class="button button-ghost button-small" id="cancel-timer" type="button" disabled>Cancel</button></form>
+          </section>
+
+          <section class="panel camera-panel" aria-labelledby="camera-heading">
+            <div class="panel-head"><div><h2 id="camera-heading">Kitchen view</h2><p id="camera-caption">Camera is off</p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
             <div class="video-frame" id="video-frame">
               <video id="camera-video" autoplay muted playsinline aria-label="Live kitchen camera preview" hidden></video>
-              <div class="camera-empty" id="camera-empty"><span class="camera-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7.5h3l1.5-2h7l1.5 2h3A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18V9a1.5 1.5 0 0 1 1-1.5Z"/><circle cx="12" cy="13" r="3.5"/><path d="m4 4 16 16"/></svg></span><p>Turn on the camera when you’re ready.</p></div>
+              <div class="camera-empty" id="camera-empty"><svg class="icon camera-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><p>Turn on the camera when you’re ready.</p></div>
             </div>
-            <div class="camera-controls"><button class="button button-small" id="camera-toggle" type="button">Turn on camera</button><button class="button button-small button-text" id="analyze-now" type="button" disabled>Analyze now</button></div>
+            <div class="camera-controls"><button class="button button-secondary button-small" id="camera-toggle" type="button">Turn on camera</button><button class="button button-secondary button-small" id="analyze-now" type="button" disabled>Analyze now</button></div>
             <p class="field-help">When you analyze a look, a still image goes to the selected model. Sous saves observations, not images.</p>
             <p id="camera-message" class="camera-message" role="status"></p>
           </section>
 
-          <section class="timer-panel" aria-labelledby="timer-heading">
-            <div class="section-heading"><div><h2 id="timer-heading">Timer</h2><p id="timer-status">No timer running</p></div><span class="timer-readout" id="timer-readout" aria-live="off">—:—</span></div>
-            <form id="timer-form" class="timer-form"><label class="visually-hidden" for="timer-minutes">Timer duration in minutes</label><input id="timer-minutes" type="number" min="0.02" max="1440" step="any" placeholder="Minutes" inputmode="decimal"><button class="button button-small" type="submit">Start</button><button class="button button-small button-text" id="cancel-timer" type="button" disabled>Cancel</button></form>
+          <section class="panel observation-panel" id="observation-panel" aria-labelledby="observation-heading">
+            <div class="panel-head"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption">No camera observations yet</p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
+            <div id="observation-content" class="observation-content"><p>Camera observations will appear here. They’re a helpful cue, never a food-safety check.</p></div>
+            <p class="observation-footnote">Confidence is a rough model signal, not a calibrated probability.</p>
           </section>
 
-          <details class="recipe-panel" id="recipe-panel" open>
-            <summary><span><span class="recipe-heading">Recipe</span><span class="recipe-subheading" id="recipe-progress-label">All the way through</span></span><span class="summary-chevron" aria-hidden="true">⌄</span></summary>
-            <ul class="ingredient-list" id="ingredient-list"></ul>
-            <ol class="recipe-steps" id="recipe-steps"></ol>
+          <details class="panel recipe-panel" id="recipe-panel" open>
+            <summary><span class="recipe-summary"><span class="recipe-heading">Recipe</span><span class="recipe-subheading" id="recipe-progress-label">All the way through</span></span><svg class="icon summary-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+            <div class="recipe-body">
+              <h3 class="list-label">Ingredients</h3>
+              <ul class="ingredient-list" id="ingredient-list"></ul>
+              <h3 class="list-label">Steps</h3>
+              <ol class="recipe-steps" id="recipe-steps"></ol>
+            </div>
           </details>
         </aside>
       </div>
 
       <div class="lower-workspace">
-        <section class="observation-panel" id="observation-panel" aria-labelledby="observation-heading">
-          <div class="section-heading"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption">No camera observations yet</p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
-          <div id="observation-content" class="observation-content"><p>Camera observations will appear here. They’re a helpful cue, never a food-safety check.</p></div>
-          <p class="observation-footnote">Confidence is a rough model signal, not a calibrated probability.</p>
-        </section>
-        <section class="voice-panel" id="voice-panel" aria-labelledby="voice-heading">
-          <div class="section-heading"><div><h2 id="voice-heading">Hands-free, if you like</h2><p id="voice-support">Buttons and text work in every browser.</p></div><button class="button button-small" id="voice-toggle" type="button">Start listening</button></div>
-          <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-small" type="submit">Send</button></form>
+        <section class="panel voice-panel" id="voice-panel" aria-labelledby="voice-heading">
+          <div class="panel-head"><div><h2 id="voice-heading">Voice and text commands</h2><p id="voice-support">Buttons and text work in every browser.</p></div><button class="button button-secondary button-small" id="voice-toggle" type="button">Start listening</button></div>
+          <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-secondary button-small" type="submit">Send</button></form>
           <p id="voice-message" class="voice-message" role="status"></p>
         </section>
-      </div>
 
-      <section class="event-panel" aria-labelledby="event-heading">
-        <div class="section-heading"><div><h2 id="event-heading">Session notes</h2><p>Recent changes and reminders</p></div></div>
-        <ol id="event-list" class="event-list"></ol>
-      </section>
+        <section class="panel event-panel" aria-labelledby="event-heading">
+          <div class="panel-head"><div><h2 id="event-heading">Session notes</h2><p>Recent changes and reminders</p></div></div>
+          <ol id="event-list" class="event-list"></ol>
+        </section>
+      </div>
     </section>
 
     <section id="completion-panel" class="completion-panel" hidden aria-live="polite">
-      <div class="completion-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="m12 25 8 8 17-19"/></svg></div>
-      <p class="eyebrow">Made at your pace</p>
+      <div class="completion-mark" aria-hidden="true">
+        <svg class="icon mark-complete" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        <svg class="icon mark-ended" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4"/><path d="M8 20v-6h8v6"/></svg>
+      </div>
       <h1 id="completion-title">Cooking complete.</h1>
-      <p id="completion-copy" class="lede">You’ve finished cooking. Enjoy your meal.</p>
-      <button class="button button-primary" id="new-session" type="button">Start another session</button>
+      <p id="completion-copy" class="completion-copy">You’ve finished cooking. Enjoy your meal.</p>
+      <button class="button button-primary button-large" id="new-session" type="button">Start another session</button>
     </section>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

@@ -105,6 +105,103 @@ class SousBrowserTests(unittest.TestCase):
         self.assertEqual(self.page_errors, [])
         self.assertEqual(self.console_errors, [])
 
+    def prepare_page_top(self):
+        result = self.page.evaluate("""
+          async () => {
+            document.activeElement?.blur();
+            window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+            await new Promise(requestAnimationFrame);
+            await new Promise(requestAnimationFrame);
+            return window.scrollY;
+          }
+        """)
+        self.assertEqual(result, 0, f"Expected page to settle at the top, got scrollY={result}")
+
+    def assert_cook_column_starts_with_workspace(self):
+        layout = self.page.evaluate("""
+          () => {
+            const workspace = document.querySelector('.workspace').getBoundingClientRect();
+            const cook = document.querySelector('.cook-column').getBoundingClientRect();
+            return { scrollY: window.scrollY, workspaceTop: workspace.top, cookTop: cook.top };
+          }
+        """)
+        self.assertEqual(layout["scrollY"], 0, f"Desktop layout check requires page top: {layout}")
+        self.assertLessEqual(
+            abs(layout["cookTop"] - layout["workspaceTop"]), 1,
+            f"Cook column should align with the workspace at page top: {layout}",
+        )
+
+    def assert_no_horizontal_overflow(self, label):
+        result = self.page.evaluate("""
+          () => {
+            const root = document.documentElement;
+            const width = root.clientWidth;
+            const offenders = [...document.querySelectorAll('body *')]
+              .filter(element => {
+                if (element.closest('.visually-hidden, .skip-link, [hidden]')) return false;
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && (rect.right > width + 1 || rect.left < -1);
+              })
+              .slice(0, 5)
+              .map(element => `${element.tagName.toLowerCase()}#${element.id}.${element.className}`);
+            return { scrollWidth: Math.max(root.scrollWidth, document.body.scrollWidth), clientWidth: width, offenders };
+          }
+        """)
+        self.assertLessEqual(
+            result["scrollWidth"], result["clientWidth"],
+            f"{label} overflows horizontally: {result}",
+        )
+        self.assertEqual(result["offenders"], [], f"{label} has elements outside the viewport: {result}")
+
+    def assert_correct_form_fully_visible(self, label):
+        page = self.page
+        page.locator("#correct-details summary").click()
+        page.locator("#correct-form").wait_for(state="visible")
+        page.locator("#correct-form").scroll_into_view_if_needed()
+        visible = page.evaluate("""
+          () => {
+            const form = document.querySelector('#correct-form');
+            const rect = form.getBoundingClientRect();
+            const width = document.documentElement.clientWidth;
+            const inside = rect.left >= 0 && rect.right <= width && rect.width > 0 && rect.height > 0;
+            const points = [
+              [rect.left + 4, rect.top + 4], [rect.right - 4, rect.top + 4],
+              [rect.left + 4, rect.bottom - 4], [rect.right - 4, rect.bottom - 4],
+            ];
+            const unclipped = points.every(([x, y]) => {
+              const hit = document.elementFromPoint(x, y);
+              // A transient toast is fixed above content by design; it does not clip the form.
+              return hit && (form.contains(hit) || Boolean(hit.closest('#toast')));
+            });
+            return { inside, unclipped, rect: [rect.left, rect.top, rect.right, rect.bottom], width };
+          }
+        """)
+        self.assertTrue(visible["inside"] and visible["unclipped"], f"{label} correct-step form is clipped: {visible}")
+        page.locator("#correct-details summary").click()
+        page.wait_for_function("!document.querySelector('#correct-details').open")
+
+    def test_setup_layout_previews_recipe_without_horizontal_overflow(self):
+        page = self.page
+        page.locator("#recipe-peek .peek-title").wait_for()
+        page.locator("#recipe-select").select_option("herbed-rice")
+        page.wait_for_function("document.querySelector('#recipe-peek .peek-title')?.textContent === 'Herbed rice'")
+        self.assertIn("3 steps", page.locator("#recipe-peek .peek-meta").inner_text())
+        self.assertEqual(page.locator("#recipe-peek .peek-steps li").all_text_contents(), ["Rinse rice", "Simmer gently", "Fold in herbs"])
+        page.locator("#recipe-select").select_option("scrambled-eggs")
+        page.wait_for_function("document.querySelector('#recipe-peek .peek-title')?.textContent !== 'Herbed rice'")
+
+        self.prepare_page_top()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/setup-desktop.png", full_page=True)
+        self.assert_no_horizontal_overflow("Setup at desktop width")
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        self.prepare_page_top()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/setup-mobile.png", full_page=True)
+        self.assert_no_horizontal_overflow("Setup at 390px")
+        self.assertTrue(page.locator("#start-session").is_visible())
+        self.assertTrue(page.locator("#start-session").is_enabled())
+        self.assert_clean_browser()
+
     def test_skip_link_is_hidden_until_keyboard_focus(self):
         link = self.page.locator(".skip-link")
         hit_testable = self.page.evaluate("""
@@ -154,10 +251,17 @@ class SousBrowserTests(unittest.TestCase):
         page.wait_for_function("document.querySelector('#timer-status').textContent === 'Counting down'")
         page.wait_for_function("document.querySelector('#timer-status').textContent === 'Timer finished'", timeout=5000)
 
-        page.evaluate("window.scrollTo(0, 0); document.activeElement?.blur();")
+        self.prepare_page_top()
+        self.assert_cook_column_starts_with_workspace()
         page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-desktop.png", full_page=True)
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-desktop-viewport.png")
+        self.assert_no_horizontal_overflow("Cooking at desktop width")
+        self.assert_correct_form_fully_visible("Desktop")
         page.set_viewport_size({"width": 390, "height": 844})
+        self.prepare_page_top()
         page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-mobile.png", full_page=True)
+        self.assert_no_horizontal_overflow("Cooking at 390px")
+        self.assert_correct_form_fully_visible("Mobile")
 
         page.reload(wait_until="networkidle")
         page.locator("#session-panel").wait_for(state="visible")
@@ -170,6 +274,17 @@ class SousBrowserTests(unittest.TestCase):
         page.locator("#finish-button").click()
         page.locator("#completion-panel").wait_for(state="visible")
         page.get_by_role("heading", name="Cooking complete.").wait_for()
+        page.set_viewport_size({"width": 1280, "height": 900})
+        self.prepare_page_top()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/completion-desktop.png", full_page=True)
+        self.assert_no_horizontal_overflow("Completion at desktop width")
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        self.prepare_page_top()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/completion-mobile.png", full_page=True)
+        self.assert_no_horizontal_overflow("Completion at 390px")
+        self.assertTrue(page.locator("#new-session").is_visible())
+        page.set_viewport_size({"width": 1280, "height": 900})
 
         page.get_by_role("button", name="Start another session").click()
         self.start_session()

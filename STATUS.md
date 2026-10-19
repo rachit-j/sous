@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: UI redesign.
-- Active: Claude Opus redesigning setup and cooking views; existing Compose app remains available at http://127.0.0.1:5050.
+- Phase: UI redesign delivered.
+- Active: redesigned Compose app running at http://127.0.0.1:5050; grey surfaces, charcoal controls and restrained color accents.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: inspect desktop/mobile WebKit renders, review preserved behavior, and rebuild Compose with the redesigned UI.
+- Next checkpoint: user trial of the redesigned workspace; physical camera/audio and live cloud checks remain configuration-dependent.
 
 ## Milestones
+
+- 2026-10-19: Opus redesign verified with 7 passing isolated WebKit cases (optional live inference skipped), backend discovery green, JavaScript syntax and diff checks clean. Luna static review found no actionable regressions. Setup/cooking/completion desktop and390px captures inspected; instant-scroll test preparation resolved a misleading sticky-panel screenshot. Targeted final cooking/completion test passed in6.439s. Compose rebuilt with existing named storage retained; HTTP200 and new stylesheet confirmed on5050.
 
 - 2026-10-19: User requested clean modern UI with grey accents and splashes of color. Delegated bounded redesign to Claude Opus using Impeccable and Frontend UI Engineering written guidance. No custom skill executables; existing user execution restrictions apply. Codex retains integration, isolated WebKit verification, documentation and commits.
 

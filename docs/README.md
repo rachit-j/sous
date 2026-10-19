@@ -8,6 +8,7 @@ Stable Markdown documents and relative links are the source of truth for future 
 - [Agent communications](../agents/communications.md): ownership, handoffs and resolutions.
 - [API contract](api.md): shared backend/frontend interface.
 - [Architecture and cooking state](architecture.md): boundaries, state transitions and privacy.
+- [Interface design](design.md): grey visual system, responsive layout, component states and UI contracts.
 - [Structured recipes](recipes.md): adding JSON recipes and preserving session definitions.
 - [Provider setup](providers.md): Ollama, OpenAI, Anthropic and Bedrock configuration.
 - [Docker setup](docker.md): Compose startup, persisted data, host model routing and container tests.

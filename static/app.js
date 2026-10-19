@@ -3,6 +3,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const START_LABEL = 'Start cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
   const state = {
     config: null,
     recipe: null,
@@ -21,6 +22,7 @@
     lastSpokenAlert: "",
     toastTimer: null,
     restored: false,
+    renderedStepKey: "",
   };
 
   const api = async (path, options = {}) => {
@@ -90,15 +92,52 @@
     if (!recipe) return;
     const peek = $("#recipe-peek");
     peek.replaceChildren();
-    const title = document.createElement("strong");
-    title.textContent = recipe.description || recipe.name;
-    const ingredients = document.createElement("ul");
-    (recipe.ingredients || []).forEach((ingredient) => {
+    const ingredients = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+    const steps = Array.isArray(recipe.steps) ? recipe.steps : [];
+    const head = document.createElement("div");
+    head.className = "peek-head";
+    const title = document.createElement("h2");
+    title.className = "peek-title";
+    title.textContent = recipe.name;
+    const meta = document.createElement("p");
+    meta.className = "peek-meta";
+    meta.textContent = `${countLabel(steps.length, "step")} · ${countLabel(ingredients.length, "ingredient")}`;
+    head.append(title, meta);
+    peek.append(head);
+    if (recipe.description) {
+      const description = document.createElement("p");
+      description.className = "peek-description";
+      description.textContent = recipe.description;
+      peek.append(description);
+    }
+    const columns = document.createElement("div");
+    columns.className = "peek-columns";
+    columns.append(
+      peekList("Ingredients", "ul", ingredients),
+      peekList("Steps", "ol", steps.map((step) => step.title)),
+    );
+    peek.append(columns);
+  }
+
+  function peekList(label, tag, items) {
+    const group = document.createElement("div");
+    group.className = "peek-group";
+    const heading = document.createElement("h3");
+    heading.className = "list-label";
+    heading.textContent = label;
+    const list = document.createElement(tag);
+    list.className = tag === "ol" ? "peek-steps" : "peek-ingredients";
+    items.forEach((text) => {
       const item = document.createElement("li");
-      item.textContent = ingredient;
-      ingredients.append(item);
+      item.textContent = text;
+      list.append(item);
     });
-    peek.append(title, ingredients);
+    group.append(heading, list);
+    return group;
+  }
+
+  function countLabel(count, noun) {
+    return `${count} ${noun}${count === 1 ? "" : "s"}`;
   }
 
   function updateModelDefault() {
@@ -241,6 +280,14 @@
     $("#step-title").textContent = step.title;
     $("#step-instruction").textContent = step.instruction;
     $("#visual-cue-text").textContent = step.visual_cue;
+    const stepKey = `${session.id}:${session.step_index}`;
+    if (state.renderedStepKey && state.renderedStepKey !== stepKey) {
+      const card = $("#current-step");
+      card.classList.remove("step-changed");
+      void card.offsetWidth;
+      card.classList.add("step-changed");
+    }
+    state.renderedStepKey = stepKey;
     const fraction = (session.step_index + 1) / recipe.steps.length;
     $("#progress-fill").style.width = `${fraction * 100}%`;
     const progress = $("#progress-bar");
@@ -539,8 +586,10 @@
 
   function updateTimerDisplay() {
     const session = state.session;
+    const readout = $("#timer-readout");
     if (!session?.timer_deadline) {
-      $("#timer-readout").textContent = "—:—";
+      readout.dataset.state = "idle";
+      readout.textContent = "—:—";
       $("#timer-status").textContent = "No timer running";
       $("#cancel-timer").disabled = true;
       return;
@@ -548,7 +597,8 @@
     const remaining = Math.max(0, Math.ceil(session.timer_deadline - Date.now() / 1000));
     const minutes = Math.floor(remaining / 60);
     const seconds = remaining % 60;
-    $("#timer-readout").textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    readout.dataset.state = session.timer_alerted || remaining === 0 ? "done" : "running";
+    readout.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     $("#timer-status").textContent = session.timer_alerted ? "Timer finished" : remaining === 0 ? "Time is up" : "Counting down";
     $("#cancel-timer").disabled = false;
   }
@@ -688,6 +738,7 @@
     $("#setup-panel").hidden = true;
     $("#completion-panel").hidden = false;
     const completed = status === "completed";
+    $("#completion-panel").dataset.status = completed ? "completed" : "ended";
     $("#completion-title").textContent = completed ? "Cooking complete." : "Session ended for now.";
     $("#completion-copy").textContent = completed ? "You’ve finished cooking. Enjoy your meal." : "Your progress is saved. Start a new session whenever you’re ready.";
     setConnection(completed ? "Session complete" : "Session ended");
@@ -721,7 +772,7 @@
     } catch (error) {
       showToast(error.message, true);
       button.disabled = false;
-      button.innerHTML = 'Start cooking <span aria-hidden="true">↗</span>';
+      button.innerHTML = START_LABEL;
     }
   }
 
@@ -792,7 +843,7 @@
       $("#completion-panel").hidden = true;
       $("#setup-panel").hidden = false;
       $("#start-session").disabled = false;
-      $("#start-session").innerHTML = 'Start cooking <span aria-hidden="true">↗</span>';
+      $("#start-session").innerHTML = START_LABEL;
       setConnection("Ready to cook");
     });
     document.addEventListener("visibilitychange", () => {

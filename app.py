@@ -15,13 +15,14 @@ from contextlib import contextmanager
 from flask import Flask, current_app, g, jsonify, render_template, request, session
 from werkzeug.exceptions import HTTPException
 
-from recipes import RECIPES
+from recipes import load_recipes
 
 MODES = ("monitoring", "assistive")
 ACTIONS = (
     "next", "back", "correct", "pause", "resume", "mode",
     "timer_set", "timer_cancel", "timer_ack", "finish", "end",
 )
+RECIPE_ACTIONS = ("next", "back", "correct", "finish", "resume")  # need the session's recipe
 # (id, display name, env var required for "configured" or None, default model env var)
 PROVIDERS = (
     ("ollama", "Ollama (local)", None, "OLLAMA_MODEL"),
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     timer_deadline REAL,
     timer_alerted INTEGER NOT NULL DEFAULT 0,
     completion_streak INTEGER NOT NULL DEFAULT 0,
-    latest_observation TEXT
+    latest_observation TEXT,
+    recipe_snapshot TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_session ON sessions(status) WHERE status = 'active';
 CREATE TABLE IF NOT EXISTS events (
@@ -108,14 +110,16 @@ def create_app(test_config=None):
         # Local-only app: reject other Host headers (DNS rebinding). Ports are ignored.
         TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
         CLOCK=time.time,
+        RECIPE_DIR=None,  # None: bundled recipes/ directory
     )
     if test_config:
         app.config.update(test_config)
     if not app.config["SECRET_KEY"]:
         app.config["SECRET_KEY"] = load_secret_key(app.config["SECRET_KEY_FILE"])
     app.extensions["sous_observations"] = {"lock": threading.Lock(), "busy": set()}
+    app.extensions["sous_recipes"] = load_recipes(app.config["RECIPE_DIR"])
 
-    init_db(app.config["DATABASE"], app.config["CLOCK"]())
+    init_db(app.config["DATABASE"], app.config["CLOCK"](), app.extensions["sous_recipes"])
     app.teardown_appcontext(close_db)
     app.register_error_handler(ApiError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
@@ -150,13 +154,25 @@ def connect(path):
     return db
 
 
-def init_db(path, now):
-    """Create tables and pause any session that was monitoring before restart."""
+def init_db(path, now, recipes):
+    """Create/upgrade tables and pause any session that was monitoring before restart.
+
+    Upgrades are additive only: older databases gain recipe_snapshot, backfilled from the
+    current definition when one exists. Rows whose recipe is gone keep a NULL snapshot.
+    """
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     db = connect(path)
     try:
         db.executescript(SCHEMA)
+        if "recipe_snapshot" not in {r["name"] for r in db.execute("PRAGMA table_info(sessions)")}:
+            db.execute("ALTER TABLE sessions ADD COLUMN recipe_snapshot TEXT")
         with transaction(db):
+            for row in db.execute(
+                "SELECT id, recipe_id, step_index FROM sessions WHERE recipe_snapshot IS NULL"
+            ).fetchall():
+                recipe = recipes.get(row["recipe_id"])
+                if recipe and row["step_index"] < len(recipe["steps"]):
+                    update_session(db, row["id"], {"recipe_snapshot": json.dumps(recipe)})
             for row in db.execute(
                 "SELECT id, revision FROM sessions WHERE status = 'active' AND monitoring = 1"
             ).fetchall():
@@ -221,11 +237,24 @@ def session_json(db, row):
     data["monitoring"] = bool(data["monitoring"])
     data["timer_alerted"] = bool(data["timer_alerted"])
     data["latest_observation"] = json.loads(data["latest_observation"]) if data["latest_observation"] else None
+    snapshot = data.pop("recipe_snapshot", None)
+    data["recipe"] = json.loads(snapshot) if snapshot else None
     data["events"] = [dict(e) for e in db.execute(
         "SELECT id, kind, message, created_at FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?",
         (row["id"], EVENT_LIMIT),
     )]
     return data
+
+
+def recipe_for_session(row):
+    """The recipe a session started with. Never substitutes a different current definition."""
+    if not row["recipe_snapshot"]:
+        raise ApiError(409, "This session's recipe is no longer available. End the session to start a new one.")
+    return json.loads(row["recipe_snapshot"])
+
+
+def current_recipes():
+    return current_app.extensions["sous_recipes"]
 
 
 def respond_session(session_id, status=200):
@@ -318,7 +347,9 @@ def apply_action(row, body, at):
     if row["status"] != "active":
         raise ApiError(409, "This session has already finished.")
 
-    steps = RECIPES[row["recipe_id"]]["steps"]
+    # Actions that don't need recipe steps (end, pause, mode, timers) still work for a
+    # legacy session whose recipe definition is unavailable.
+    steps = recipe_for_session(row)["steps"] if action in RECIPE_ACTIONS else []
     last = len(steps) - 1
     step = row["step_index"]
     invalidate = {"revision": row["revision"] + 1, "completion_streak": 0}
@@ -413,7 +444,7 @@ def validate_observation(output):
 
 def apply_observation(row, obs, at):
     """Return (changes, events) for a validated observation on a fresh session row."""
-    steps = RECIPES[row["recipe_id"]]["steps"]
+    steps = recipe_for_session(row)["steps"]
     last = len(steps) - 1
     step = row["step_index"]
     qualifies = obs["step_complete"] and obs["confidence"] >= COMPLETION_CONFIDENCE
@@ -453,8 +484,8 @@ def check_observable(row, revision):
 
 def observation_context(db, row, at):
     """Recipe/state context passed to providers.analyze (no images)."""
-    recipe = RECIPES[row["recipe_id"]]
-    recent = [dict(r) for r in db.execute(
+    recipe = recipe_for_session(row)
+    recent =[dict(r) for r in db.execute(
         "SELECT activity, evidence, confidence, step_complete, created_at FROM observations"
         " WHERE session_id = ? AND step_index = ? AND error IS NULL ORDER BY id DESC LIMIT 3",
         (row["id"], row["step_index"]),
@@ -484,15 +515,16 @@ def register_routes(app):
 
     @app.get("/api/config")
     def config():
-        return jsonify(recipes=list(RECIPES.values()), providers=provider_catalog(), sample_interval=SAMPLE_INTERVAL)
+        return jsonify(recipes=list(current_recipes().values()), providers=provider_catalog(), sample_interval=SAMPLE_INTERVAL)
 
     @app.post("/api/sessions")
     def create_session():
         body = json_body()
         recipe_id, provider = body.get("recipe_id"), body.get("provider")
         model, mode = body.get("model"), body.get("mode")
-        if not isinstance(recipe_id, str) or recipe_id not in RECIPES:
+        if not isinstance(recipe_id, str) or recipe_id not in current_recipes():
             raise ApiError(400, "Unknown recipe.")
+        recipe = current_recipes()[recipe_id]
         catalog = {p["id"]: p for p in provider_catalog()}
         if not isinstance(provider, str) or provider not in catalog:
             raise ApiError(400, "Unknown provider.")
@@ -510,10 +542,10 @@ def register_routes(app):
                     raise ApiError(409, "Another session is already active.")
                 session_id = db.execute(
                     "INSERT INTO sessions (recipe_id, provider, model, mode, status, created_at, updated_at,"
-                    " step_started_at) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
-                    (recipe_id, provider, model.strip(), mode, at, at, at),
+                    " step_started_at, recipe_snapshot) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+                    (recipe_id, provider, model.strip(), mode, at, at, at, json.dumps(recipe)),
                 ).lastrowid
-                log_event(db, session_id, "session", f"Started {RECIPES[recipe_id]['name']} in {mode} mode.", at)
+                log_event(db, session_id, "session", f"Started {recipe['name']} in {mode} mode.", at)
         except sqlite3.IntegrityError:
             raise ApiError(409, "Another session is already active.") from None
         return respond_session(session_id, 201)

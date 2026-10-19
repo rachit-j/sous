@@ -2,7 +2,7 @@
 
 ## Objective
 
-A local laptop-webcam assistant for one scrambled-eggs cooking session: persistent recipe state, periodic visual monitoring, automatic step progression, user corrections, one timer, and voice interaction. Codex coordinates Claude Code and Luna and verifies the result.
+A local laptop-webcam cooking assistant: persistent recipe state, periodic visual monitoring, automatic step progression, user corrections, one timer, and voice interaction. Recipes are structured data; scrambled eggs is the first bundled/default recipe, not a restriction or tuning target. Codex coordinates Claude Code and Luna and verifies the result.
 
 ## Workflow and documentation
 
@@ -20,7 +20,7 @@ A local laptop-webcam assistant for one scrambled-eggs cooking session: persiste
 
 - Flask, Jinja, plain JS/CSS, SQLite. No frontend build, task queue, or agent framework.
 - Choose configured provider/model and Monitoring or Assistive mode before starting. Show preview, current step, progress, timer, recent observations/evidence, confidence, and time.
-- Recipe: gather ingredients; crack/whisk; warm pan/add butter; add eggs; gently stir; transfer to plate. Final completion requires cook confirmation.
+- Load structured recipe JSON from recipes/. Bundle scrambled eggs first (gather; crack/whisk; warm pan/butter; add eggs; stir; plate). Any recipe can have its own ingredients, steps and visual cues. No fixed step count or recipe-specific monitoring prompts. Final completion requires cook confirmation.
 - Monitoring speaks on transitions, timer expiry, and actionable issues. Assistive also reads instructions. Deduplicate repeated alerts.
 - Controls: Next, Back, Correct step, Pause/Resume, End. Voice: next/back/repeat/pause/resume, set timer for N minutes, cancel timer. Equivalent buttons/text available. Browser speech APIs feature-detected; speech recognition may use an external service.
 - One adjustable absolute-deadline timer, independent of recipe advancement; alert once, including after refresh.
@@ -30,13 +30,15 @@ A local laptop-webcam assistant for one scrambled-eggs cooking session: persiste
 - Revision checks discard late responses; corrections override AI. Obstruction/uncertainty and provider errors never advance; manual actions/timers keep working.
 - Four adapters: Ollama /api/chat, OpenAI Responses, Anthropic Messages, AWS Bedrock Converse. Server-side credentials/URLs, configurable model IDs, no automatic fallback.
 - SQLite stores sessions/state/revision/deadlines and timestamped actions/corrections/observations with model/latency/errors. No saved frames, raw audio, credentials, or image-bearing requests.
-- Refresh restores state; refresh/restart requires Resume. Localhost, one cook/tab, no accounts. No food-safety/fire detection claims, free-form recipes, or deployment.
+- Refresh restores state; refresh/restart requires Resume. Localhost, one cook/tab, no accounts. No food-safety/fire detection claims, AI-generated free-form recipes, or deployment.
 
 ## Interfaces and verification
 
 See [API contract](docs/api.md). Validate inputs, upload limits, provider responses, origins and CSRF tokens; time out remote requests.
 
 Build slices: backend/manual loop -> frontend -> provider monitoring -> review/fixes -> runtime verification. Use unittest/Flask test client with mocked providers. Verify persistence, corrections, bounds, qualifying/uncertain/late observations, timer deduplication, credentials/timeouts/malformed outputs, permission failures, and UI recovery. Live-smoke-test available configured providers; explicitly label others unverified.
+
+User correction: recipes must be data-driven. After P1, delegate moving bundled recipe to JSON, generic validation/loading, session recipe snapshots so config edits don't change an ongoing cook, and tests with a second recipe/different step count. Luna removes eggs-specific UI copy and uses the session snapshot. No recipe editor or AI recipe generation is required for this iteration.
 
 ## Docker delivery
 

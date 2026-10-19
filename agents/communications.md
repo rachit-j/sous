@@ -16,7 +16,7 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 | B1 | Claude Code | Flask/SQLite recipe loop, actions, tests and dependency configuration | Completed; 16 tests verified by Codex |
 | U1 | Luna | Jinja/JS/CSS interface using agreed API | Completed; browser checks passed, final polish verification running |
 | P1 | Claude Code | Four model adapters and monitoring integration | Completed; 32 tests passed, local live smoke running |
-| G1 | Claude Code | Generic JSON recipes and persistent session recipe snapshot | After P1 (user clarification) |
+| G1 | Claude Code | Generic JSON recipes and persistent session recipe snapshot | Completed by Opus; 44 tests passed |
 | R1 | Luna (fresh review context) | Independent completed-flow review | UI review complete; one P2 fix queued; provider review after P1 |
 | V1 | Codex | Inspect, test, run browser, record evidence | Ongoing |
 | D1 | Claude Code | Dockerfile/Compose packaging and container configuration | After application verification |
@@ -78,3 +78,19 @@ User: do not tune app to scrambled eggs; it should only be the first loaded reci
 ### P1 return
 
 Claude Opus completed four adapters and reviewed input/host protection. Codex observed 32 tests passing. Model prompt is already generic, scoped to selected current step/cue; no eggs-specific model tuning. Local Ollama uses 180s read timeout; cloud adapters use60s with bounded SDK retry. Live qwen smoke running on synthetic frame. Generic JSON recipe/snapshot implementation is next, then Luna's camera-race/snapshot UI fix.
+
+### G1 dispatch / R1 provider review
+
+G1 assigned to Opus with recipes.py, recipes/00-scrambled-eggs.json, app.py, tests/test_recipes.py, tests/test_app.py, and providers.py only if correcting a food-specific prompt. Requires additive migration/backfill and session.recipe response. Frontend changes deferred to Luna after writer finishes. Independent Luna reviews P1 commit6748503 via stable git objects so G1 edits cannot confuse review.
+
+### Live local inference evidence
+
+Opt-in WebKit test passed in51.056s using actual qwen3-vl:8b via Flask/provider adapter with a generated canvas stream. No physical camera/audio or cloud call. Cold timeout/schema worked without recipe-specific tuning or transport adjustments. Cloud adapters remain tested via mocked wire responses only.
+
+### R1 provider review result
+
+No concrete adapter wire/parser defect found. One P2 in observation persistence: after inference the route passes fresh row metadata to record_observation even if step/revision changed. Result belongs to original row/context. Record original step/provider/model/revision, recheck freshness for failure branches too, return409 for stale failed requests rather than502, preserve actual sanitized failure reason in audit record. Queue backend fix and regression after active G1 writer returns. Manual corrections already dominate live state; this fix makes evaluation records accurate.
+
+### G1 return
+
+44 tests observed passing. Recipe JSON loaded per app from RECIPE_DIR (default bundled recipes/), variable step counts supported, snapshot stored and exposed as session.recipe, additive old DB migration preserves session/timer/events. Missing legacy definition yields recipe:null; end/pause/timers remain available. Luna should prefer session.recipe and render missing-definition session with End/timer controls only. Small Sonnet follow-up will fix audit metadata and remove loader's test-only food alias/import-time load, leaving food-specific references in fixtures/data only.

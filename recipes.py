@@ -1,47 +1,75 @@
-"""Fixed recipe definitions. Free-form recipes are out of scope for the MVP."""
+"""Load structured recipe definitions from recipes/*.json (format: docs/recipes.md).
 
-SCRAMBLED_EGGS = {
-    "id": "scrambled-eggs",
-    "name": "Scrambled Eggs",
-    "description": "Soft scrambled eggs for one, cooked gently in butter.",
-    "ingredients": [
-        "2 large eggs",
-        "1 tablespoon butter",
-        "Pinch of salt",
-        "Pepper, to taste (optional)",
-    ],
-    "steps": [
-        {
-            "title": "Gather ingredients",
-            "instruction": "Set out the eggs, butter, salt, a bowl, a fork or whisk, a nonstick pan and a spatula.",
-            "visual_cue": "Eggs, butter, bowl, whisk or fork, pan and spatula are visible on the counter.",
-        },
-        {
-            "title": "Crack and whisk",
-            "instruction": "Crack the eggs into the bowl, add a pinch of salt and whisk until evenly yellow.",
-            "visual_cue": "Bowl contains uniformly yellow beaten eggs with no visible separate whites.",
-        },
-        {
-            "title": "Warm pan and add butter",
-            "instruction": "Place the pan over medium-low heat and melt the butter, swirling to coat.",
-            "visual_cue": "Pan is on the stove with melted, lightly foaming butter coating the surface.",
-        },
-        {
-            "title": "Add eggs",
-            "instruction": "Pour the beaten eggs into the buttered pan.",
-            "visual_cue": "Liquid beaten eggs are in the pan and the bowl is empty or set aside.",
-        },
-        {
-            "title": "Gently stir",
-            "instruction": "Stir slowly with the spatula, pushing eggs from the edges, until soft curds form and they look just set.",
-            "visual_cue": "Eggs have formed soft, moist curds with little or no runny liquid remaining.",
-        },
-        {
-            "title": "Transfer to plate",
-            "instruction": "Turn off the heat and move the eggs to a plate. Season with pepper if you like.",
-            "visual_cue": "Scrambled eggs are on a plate and the pan is off the heat.",
-        },
-    ],
-}
+Recipes are plain data: nothing in them is executed, templated or sent anywhere except
+as text in the model prompt and UI. Invalid files fail loudly at startup.
+"""
 
-RECIPES = {SCRAMBLED_EGGS["id"]: SCRAMBLED_EGGS}
+import json
+import os
+
+RECIPE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes")
+MAX_FIELD = 2000
+
+
+class RecipeError(ValueError):
+    pass
+
+
+def load_recipes(directory=None):
+    """Return {id: recipe} for every *.json file in filename order."""
+    directory = directory or RECIPE_DIR
+    try:
+        names = sorted(n for n in os.listdir(directory) if n.endswith(".json"))
+    except OSError as exc:
+        raise RecipeError(f"Cannot read recipe directory {directory}: {exc.strerror}") from None
+    recipes, sources = {}, {}
+    for name in names:
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as fh:
+                data = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise RecipeError(f"{name}: invalid JSON ({exc.msg} at line {exc.lineno})") from None
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RecipeError(f"{name}: cannot read file ({exc})") from None
+        recipe = validate_recipe(data, name)
+        if recipe["id"] in recipes:
+            raise RecipeError(f"{name}: duplicate recipe id '{recipe['id']}' (also in {sources[recipe['id']]})")
+        recipes[recipe["id"]] = recipe
+        sources[recipe["id"]] = name
+    if not recipes:
+        raise RecipeError(f"No recipe files (*.json) found in {directory}")
+    return recipes
+
+
+def validate_recipe(data, source):
+    """Return a normalized copy containing only the documented fields."""
+    def text(value, where):
+        if not isinstance(value, str) or not value.strip() or len(value) > MAX_FIELD:
+            raise RecipeError(f"{source}: {where} must be a nonempty string (max {MAX_FIELD} characters)")
+        return value.strip()
+
+    if not isinstance(data, dict):
+        raise RecipeError(f"{source}: file must contain one recipe object")
+    ingredients, steps = data.get("ingredients"), data.get("steps")
+    if not isinstance(ingredients, list):
+        raise RecipeError(f"{source}: ingredients must be a list")
+    if not isinstance(steps, list) or not steps:
+        raise RecipeError(f"{source}: steps must be a nonempty list")
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise RecipeError(f"{source}: steps[{i}] must be an object")
+    return {
+        "id": text(data.get("id"), "id"),
+        "name": text(data.get("name"), "name"),
+        "description": text(data.get("description"), "description"),
+        "ingredients": [text(item, f"ingredients[{i}]") for i, item in enumerate(ingredients)],
+        "steps": [
+            {key: text(step.get(key), f"steps[{i}].{key}") for key in ("title", "instruction", "visual_cue")}
+            for i, step in enumerate(steps)
+        ],
+    }
+
+
+RECIPES = load_recipes()
+# Bundled sample; referenced by tests/test_providers.py. The engine never uses it.
+SCRAMBLED_EGGS = RECIPES.get("scrambled-eggs")

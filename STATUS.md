@@ -2,8 +2,8 @@
 
 ## Current
 
-- Phase: provider integration.
-- Active: Claude Opus implementing P1 adapters/validation fixes; Codex verifying/committing Luna's interface.
+- Phase: generic recipe support and live inference verification.
+- Active: Claude Opus implementing G1 JSON recipes/snapshots; fresh Luna reviewing committed P1 provider code; Codex monitoring real local inference.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
 - Next checkpoint: run provider tests and live local inference, independent review, then Docker packaging.
 
@@ -27,3 +27,7 @@
 - 2026-10-19: Fresh Luna reviewer found one P2 camera-permission race: a permission result requested in an ended session could attach to a replacement session. Fix/test queued for Luna UI after P1 finishes; no real camera was used in tests.
 - 2026-10-19: User clarified recipes must be generic; scrambled eggs is only the first loaded recipe. Queued JSON recipe loading/session snapshots and removal of eggs-specific UI copy after active P1 task, before Docker delivery.
 - 2026-10-19T20:48Z: Claude Opus completed P1. Codex ran 32 backend/provider tests successfully (optional browser class skipped). Real local qwen3-vl browser smoke test running with generated frame; cloud integrations remain mocked/unverified live.
+- 2026-10-19T20:49Z: P1 committed as6748503. G1 dispatched with explicit Opus; independent provider review delegated to Luna using committed code, avoiding moving files.
+- 2026-10-19T20:49Z: Real qwen3-vl:8b inference through Flask and isolated WebKit passed in51.056s from cold start, using a generated canvas frame. No physical camera or cloud API used.
+- 2026-10-19: Independent provider review found no concrete adapter wire/parser defects. One P2 audit metadata issue queued: late observations/errors must retain their original step/revision context rather than the freshly corrected step; stale failures should return409.
+- 2026-10-19T20:52Z: G1 completed by Opus; Codex ran44 tests successfully. JSON recipe loading, different step counts, immutable session recipes and additive legacy database migration covered. Preparing small Sonnet audit-log correction, then Luna snapshot-aware UI/camera-race fix.

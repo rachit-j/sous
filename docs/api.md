@@ -10,13 +10,13 @@ The index template injects a CSRF token in a meta element. POST calls include `X
 
 `GET /api/config` returns `{recipes: [...], providers: [...], sample_interval: 10}`.
 
-Recipe: `{id: "scrambled-eggs", name, description, ingredients: [string], steps: [{title, instruction, visual_cue}]}`. Six zero-indexed steps, defined in PLAN.md.
+Recipe: `{id, name, description, ingredients: [string], steps: [{title, instruction, visual_cue}]}`. Recipes have arbitrary nonempty ordered step lists, addressed by zero-based index. Scrambled eggs is the first bundled example, not a state-machine or model constraint. Definitions load from `recipes/*.json` in filename order.
 
 Provider: `{id: "ollama"|"openai"|"anthropic"|"bedrock", name, configured: boolean, default_model: string}`. Ollama defaults to local URL; cloud entries require server credentials/config. A model ID is required when creating a session. Don't probe or download models automatically.
 
 ## Session shape
 
-`{id, recipe_id, provider, model, mode: "monitoring"|"assistive", step_index, status: "active"|"completed"|"ended", monitoring: boolean, revision: integer, created_at, updated_at, step_started_at, timer_deadline: number|null, timer_alerted: boolean, completion_streak: integer, latest_observation: object|null, events: [...]}`.
+`{id, recipe_id, recipe, provider, model, mode: "monitoring"|"assistive", step_index, status: "active"|"completed"|"ended", monitoring: boolean, revision: integer, created_at, updated_at, step_started_at, timer_deadline: number|null, timer_alerted: boolean, completion_streak: integer, latest_observation: object|null, events: [...]}`. `recipe` is a persisted snapshot of the selected definition; changes to recipe files apply to new sessions, not a cooking session already underway. Existing pre-snapshot database rows are backfilled from their available definition during the additive migration.
 
 Events: `{id, kind, message, created_at}` (newest first, at most 50). Observations include `{activity, evidence, confidence, step_complete, alert, created_at}`; provider/model/latency are recorded for evaluation without frames.
 

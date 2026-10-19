@@ -30,6 +30,7 @@ Read CC-Instructions.md before delegating to Claude Code.
 ## Implementation quality
 
 - Flask/Jinja/plain JS/CSS/SQLite; minimize dependencies and abstractions.
+- Recipes are data-driven, loaded from JSON. Scrambled eggs is only the first bundled/default example. Never hardcode its name, step count or cooking cues into UI copy, state logic or model prompts; use selected recipe data. Preserve a recipe snapshot for each session.
 - Validate external inputs and model outputs; preserve manual controls on model failure.
 - Model confidence is heuristic. Camera observations cannot verify food safety.
 - Test state transitions, stale observations, timers, provider mapping/failure, and persistence. Browser-check actual UI behavior.

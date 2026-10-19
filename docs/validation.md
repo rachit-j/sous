@@ -14,6 +14,8 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 - Viewed desktop/mobile screenshots under `/private/tmp/sous-webkit-artifacts`. No physical webcam/microphone or personal browser accessed. Real hardware framing and audible speech remain manual checks.
 - After accessibility/screenshot polish, reran the manual cooking scenario including keyboard skip-link behavior: passed in 7.275s. Screenshot capture resets focus/scroll; unfocused skip link remains clipped.
 - 2026-10-19: After P1, full unittest discovery — 32 tests passed in 0.854s, optional browser class skipped. Four provider wire formats, strict parsing, sanitized transport/refusal failures, trusted hosts, malformed session inputs and non-ASCII CSRF regressions covered. Cloud providers have not been live-tested.
+- 2026-10-19: Opt-in real local Ollama WebKit test — passed in51.056s, including cold `qwen3-vl:8b` startup, generated-canvas video capture, real Flask/provider request, validated observation and visible confidence. This verifies transport/integration, not cooking accuracy. No physical camera or external provider involved.
+- 2026-10-19: G1 unittest discovery —44 tests passed in0.509s, optional browser class skipped. Added tests for generic recipe files/order/validation, 1- and2-step recipes, observed/manual transitions against their cues, snapshots after definition changes/removal, and additive migration of prior session/timer/event data.
 
 ## Test environment
 

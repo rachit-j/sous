@@ -13,6 +13,7 @@ from unittest import mock
 import requests
 from jinja2 import DictLoader
 
+import providers
 from app import create_app
 
 # Minimal bytes with JPEG SOI/EOI markers; providers are faked so it is never decoded.
@@ -41,7 +42,7 @@ class SousTestCase(unittest.TestCase):
 
     def make_app(self, **overrides):
         config = {"TESTING": True, "DATABASE": self.db_path, "SECRET_KEY": "test-secret",
-                  "CLOCK": lambda: self.clock, **overrides}
+                  "CLOCK": lambda: self.clock, **getattr(self, "app_config", {}), **overrides}
         app = create_app(config)
         app.jinja_env.loader = DictLoader({"index.html": INDEX})  # stand-in for Luna's template
         return app
@@ -78,7 +79,7 @@ class SecurityTests(SousTestCase):
         data = resp.get_json()
         self.assertNotIn("sk-very-secret", resp.get_data(as_text=True))
         self.assertEqual(data["sample_interval"], 10)
-        self.assertEqual(len(data["recipes"][0]["steps"]), 6)
+        self.assertEqual(data["recipes"][0]["id"], "scrambled-eggs")  # first bundled sample
         openai = next(p for p in data["providers"] if p["id"] == "openai")
         self.assertEqual(openai, {"id": "openai", "name": "OpenAI", "configured": True, "default_model": "gpt-x"})
 
@@ -361,6 +362,166 @@ class ProviderIntegrationTests(SousTestCase):
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(db.execute("SELECT error FROM observations").fetchone()[0],
                              "Could not reach the provider.")
+
+
+TOAST = {
+    "id": "toast", "name": "Buttered Toast", "description": "Toast with butter.",
+    "ingredients": ["Bread", "Butter"],
+    "steps": [
+        {"title": "Toast bread", "instruction": "Toast the bread until golden.",
+         "visual_cue": "A golden-brown slice is out of the toaster."},
+        {"title": "Butter", "instruction": "Spread butter on the toast.",
+         "visual_cue": "Butter is spread across the toast surface."},
+    ],
+}
+TEA = {
+    "id": "tea", "name": "Mug of Tea", "description": "One mug of black tea.", "ingredients": ["Tea bag"],
+    "steps": [{"title": "Steep", "instruction": "Steep the tea bag for three minutes.",
+               "visual_cue": "A mug of dark tea with the bag removed."}],
+}
+
+
+def write_recipe(directory, filename, recipe):
+    with open(os.path.join(directory, filename), "w", encoding="utf-8") as fh:
+        json.dump(recipe, fh)
+
+
+class CustomRecipeTests(SousTestCase):
+    """The engine follows whichever recipe the session started with, not the bundled sample."""
+
+    def setUp(self):
+        recipe_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(recipe_tmp.cleanup)
+        self.recipe_dir = recipe_tmp.name
+        write_recipe(self.recipe_dir, "10-toast.json", TOAST)
+        write_recipe(self.recipe_dir, "20-tea.json", TEA)
+        self.app_config = {"RECIPE_DIR": self.recipe_dir}
+        super().setUp()
+        self.contexts = []
+        fake = types.ModuleType("providers")
+        fake.analyze = lambda provider, model, jpeg, context: self.contexts.append(context) or observation()
+        patcher = mock.patch.dict(sys.modules, {"providers": fake})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_config_lists_current_recipes_in_file_order(self):
+        self.assertEqual([r["id"] for r in self.client.get("/api/config").get_json()["recipes"]], ["toast", "tea"])
+
+    def test_manual_and_observed_progression_follow_selected_recipe(self):
+        s = self.start(recipe_id="toast")
+        sid = s["id"]
+        self.assertEqual(s["recipe"], TOAST)
+        self.assertNotIn("recipe_snapshot", s)
+        self.assertFalse(s["monitoring"])
+        self.act(sid, "correct", expect=400, step_index=2)
+        self.act(sid, "next")
+        self.act(sid, "next", expect=409)
+        self.act(sid, "back")
+
+        s = self.act(sid, "resume")
+        s = self.observe(self.observe(s).get_json()).get_json()
+        self.assertEqual(s["step_index"], 1)
+        context = self.contexts[0]
+        self.assertEqual(context["step"], TOAST["steps"][0])
+        prompt = providers.build_prompt(context)
+        self.assertIn(TOAST["steps"][0]["visual_cue"], prompt)
+        self.assertIn("step 1 of 2", prompt)
+        self.assertNotIn("egg", (prompt + providers.SYSTEM_PROMPT).lower())
+
+        for _ in range(3):  # the final step never completes itself
+            s = self.observe(s).get_json()
+        self.assertEqual((s["status"], s["step_index"]), ("active", 1))
+        self.assertTrue(self.contexts[-1]["is_final_step"])
+        self.assertEqual(self.act(sid, "finish")["status"], "completed")
+
+    def test_session_keeps_snapshot_when_definition_changes_or_is_removed(self):
+        sid = self.start(recipe_id="toast")["id"]
+        self.act(sid, "next")
+        edited = {**TOAST, "steps": TOAST["steps"] + [{"title": "Plate", "instruction": "Plate it.",
+                                                        "visual_cue": "Toast on a plate."}]}
+        write_recipe(self.recipe_dir, "10-toast.json", edited)
+
+        client, token = self.browser(self.make_app())
+        session = client.get("/api/sessions/active").get_json()["session"]
+        self.assertEqual((session["recipe"], session["step_index"]), (TOAST, 1))
+        config = client.get("/api/config").get_json()["recipes"]
+        self.assertEqual(len(config[0]["steps"]), 3)  # new sessions would get the edited version
+        action = lambda body: self.post(f"/api/sessions/{sid}/actions", body, client=client, token=token)
+        self.assertEqual(action({"action": "next"}).status_code, 409)  # bound from the snapshot
+
+        os.remove(os.path.join(self.recipe_dir, "10-toast.json"))
+        client, token = self.browser(self.make_app())
+        session = client.get("/api/sessions/active").get_json()["session"]
+        self.assertEqual(session["recipe"], TOAST)
+        self.assertEqual([r["id"] for r in client.get("/api/config").get_json()["recipes"]], ["tea"])
+        self.assertEqual(action({"action": "correct", "step_index": 0}).status_code, 200)
+        resumed = action({"action": "resume"}).get_json()
+        resp = self.post(f"/api/sessions/{sid}/observations",
+                         {"image": data_url(FAKE_JPEG), "revision": resumed["revision"]}, client=client, token=token)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self.contexts[-1]["step"], TOAST["steps"][0])
+
+
+LEGACY_SCHEMA = """
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, recipe_id TEXT NOT NULL, provider TEXT NOT NULL,
+    model TEXT NOT NULL, mode TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL,
+    monitoring INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
+    updated_at REAL NOT NULL, step_started_at REAL NOT NULL, timer_deadline REAL,
+    timer_alerted INTEGER NOT NULL DEFAULT 0, completion_streak INTEGER NOT NULL DEFAULT 0,
+    latest_observation TEXT
+);
+CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL REFERENCES sessions(id),
+    kind TEXT NOT NULL, message TEXT NOT NULL, created_at REAL NOT NULL
+);
+"""
+
+
+class LegacyDatabaseTests(SousTestCase):
+    """Databases created before recipe snapshots upgrade in place without losing state."""
+
+    def legacy_app(self, recipe_id):
+        path = os.path.join(self.tmp.name, "legacy.sqlite3")
+        with closing(sqlite3.connect(path)) as db:
+            db.executescript(LEGACY_SCHEMA)
+            db.execute(
+                "INSERT INTO sessions (recipe_id, provider, model, mode, step_index, status, monitoring, revision,"
+                " created_at, updated_at, step_started_at, timer_deadline) VALUES"
+                " (?, 'ollama', 'llava', 'monitoring', 1, 'active', 1, 3, ?, ?, ?, ?)",
+                (recipe_id, self.clock, self.clock, self.clock, self.clock + 300),
+            )
+            db.execute("INSERT INTO events (session_id, kind, message, created_at) VALUES (1, 'note', 'Legacy event', ?)",
+                       (self.clock,))
+            db.commit()
+        client, token = self.browser(self.make_app(DATABASE=path))
+        action = lambda body: self.post("/api/sessions/1/actions", body, client=client, token=token)
+        return path, client, action
+
+    def test_legacy_database_upgrades_and_backfills_snapshot(self):
+        path, client, action = self.legacy_app("scrambled-eggs")
+        s = client.get("/api/sessions/active").get_json()["session"]
+        self.assertEqual(s["recipe"]["id"], "scrambled-eggs")
+        self.assertEqual((s["step_index"], s["timer_deadline"]), (1, self.clock + 300))
+        self.assertEqual((s["monitoring"], s["revision"]), (False, 4))  # paused on restart, as before
+        self.assertIn("Legacy event", [e["message"] for e in s["events"]])
+        self.assertEqual(action({"action": "next"}).get_json()["step_index"], 2)
+
+        client, _ = self.browser(self.make_app(DATABASE=path))  # second startup is a no-op upgrade
+        s = client.get("/api/sessions/1").get_json()
+        self.assertEqual((s["recipe"]["id"], s["step_index"]), ("scrambled-eggs", 2))
+
+    def test_legacy_session_without_definition_can_still_end(self):
+        _, client, action = self.legacy_app("retired-recipe")
+        s = client.get("/api/sessions/active").get_json()["session"]
+        self.assertIsNone(s["recipe"])
+        for body in ({"action": "next"}, {"action": "resume"}, {"action": "correct", "step_index": 0}):
+            resp = action(body)
+            self.assertEqual(resp.status_code, 409, body)
+            self.assertIn("no longer available", resp.get_json()["error"])
+        self.assertEqual(client.get("/api/sessions/1").get_json()["step_index"], 1)
+        self.assertEqual(action({"action": "timer_cancel"}).status_code, 200)
+        self.assertEqual(action({"action": "end"}).get_json()["status"], "ended")
 
 
 if __name__ == "__main__":

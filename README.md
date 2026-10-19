@@ -1,6 +1,6 @@
 # Sous
 
-A local Flask cooking companion for a scrambled-eggs session. A laptop webcam supplies periodic snapshots; Sous tracks recipe steps, speaks useful updates, and lets the cook correct its understanding.
+A local Flask cooking companion driven by structured recipes. Scrambled eggs is the first bundled recipe. A laptop webcam supplies periodic snapshots; Sous tracks the selected recipe's steps, speaks useful updates, and lets the cook correct its understanding.
 
 ## Run locally
 
@@ -38,6 +38,8 @@ Add `SOUS_LIVE_OLLAMA=1` and select the optional live test to exercise your exis
 See [validation evidence](docs/validation.md) for observed checks and limitations. The test suite uses mocked model responses; it does not send kitchen images to remote providers.
 
 ## Local data and limits
+
+Add recipes as JSON data; the bundled scrambled-eggs recipe is just the first example. See [recipe format](docs/recipes.md). Tracking and model prompts use the selected recipe's own instructions and visual cues.
 
 SQLite session history and the persistent Flask secret live under ignored `instance/`. Images and raw audio are not stored by Sous. Hosted providers receive snapshots when selected. Browser speech recognition may use an external service; it is optional.
 

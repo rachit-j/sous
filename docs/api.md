@@ -2,7 +2,7 @@
 
 ## Conventions
 
-JSON requests/responses. Error responses: `{ "error": "User-readable message" }` with 400/404/409/413/502 as appropriate. No provider secrets or raw upstream errors in responses. Every response that changes a session returns the full session object. Times are Unix seconds (UTC); browser converts for display.
+JSON requests/responses. Error responses: `{ "error": "User-readable message" }` with 400/403/404/409/413/502 as appropriate. No provider secrets or raw upstream errors in responses. Every response that changes a session returns the full session object. Times are Unix seconds (UTC); browser converts for display.
 
 The index template injects a CSRF token in a meta element. POST calls include `X-CSRF-Token`. Require matching browser origin when Origin is present. GET config returns no secrets. Flask browser session cookie persists across reloads; app secret must persist locally across restarts.
 

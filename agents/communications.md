@@ -14,8 +14,8 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 | ID | Owner | Assignment | State |
 |---|---|---|---|
 | B1 | Claude Code | Flask/SQLite recipe loop, actions, tests and dependency configuration | Completed; 16 tests verified by Codex |
-| U1 | Luna | Jinja/JS/CSS interface using agreed API | Implementing as sole writer, including WebKit tests |
-| P1 | Claude Code | Four model adapters and monitoring integration | Waiting for B1/U1 |
+| U1 | Luna | Jinja/JS/CSS interface using agreed API | Completed; browser checks passed, final polish verification running |
+| P1 | Claude Code | Four model adapters and monitoring integration | Implementing with explicit Opus selection |
 | R1 | Luna | Independent completed-flow review | Waiting for implementation |
 | V1 | Codex | Inspect, test, run browser, record evidence | Ongoing |
 | D1 | Claude Code | Dockerfile/Compose packaging and container configuration | After application verification |
@@ -49,3 +49,19 @@ Final deliverable must run with Docker Compose, retain SQLite/secret state in a 
 ### B1 return / U1 implementation handoff
 
 Claude completed backend with configured default confirmed Opus. Codex observed 16 passing backend tests. create_app(test_config) is the app entrypoint; index injects csrf_token; times are Unix seconds; session ID integer. Backend has full observation state/concurrency route but providers.py is absent until P1. Luna may write templates/index.html, static/app.js, static/style.css, tests/test_browser.py, requirements-dev.txt only. Browser tests gated SOUS_BROWSER_TESTS=1, WebKit under /tmp, no personal browsers. Backend review notes queued for P1: validate recipe/provider types before dict membership; non-ASCII CSRF header should yield 403 instead of TypeError. No overlapping implementation writers.
+
+### Available runtime services
+
+Docker Desktop started using its official CLI; Docker server 29.8.2 responds. A network-enabled read-only GET to local Ollama /api/tags confirms qwen3-vl:8b with vision capability already installed. Earlier sandbox loopback probe failed; no models were downloaded. Live local test should use only synthetic fixture images, never user camera imagery. Cloud providers still require configured API credentials/model IDs before live verification.
+
+### Runtime defaults and review notes
+
+Host port 5000 is occupied by macOS Control Center (lsof verified); local and Docker default app URL is 127.0.0.1:5050, configurable SOUS_PORT for Compose. User notes local Ollama is cold; allow ~180s local inference read timeout and show in-flight state. Frontend review notes sent to Luna: forward AbortController signal through post helper, recognize 'resume monitoring', guard same-revision timer state against delayed observation responses. P1 backend fixes remain queued.
+
+### U1 verification
+
+Codex ran WebKit suite after Luna fixed harness failures (macOS temp-path guard, Python function binding, ambiguous permission-error locator, delayed-response assertion timing). Final U1 run: 3 passed + live provider case intentionally skipped in 15.295s; passing cases assert clean browser console. Generated canvas camera and explicit denial mocks only. Desktop/mobile screenshots reviewed; small offscreen skip-link screenshot artifact polish assigned before commit. User confirmed camera may be inaccessible and accepts synthetic-camera testing; real hardware remains manual.
+
+### P1 dispatch
+
+Claude resumes the exact successful B1 session with explicit Opus. Allowed writes: providers.py, app.py, tests/test_app.py, tests/test_providers.py, .env.example, requirements.txt. Four real REST/SDK adapters, strict parsing/sanitized failures and local cold-start allowance; fixes for malformed recipe/provider types and non-ASCII CSRF, optional trusted-host hardening. Luna has stopped writing. Codex owns tests, documentation, and commits.

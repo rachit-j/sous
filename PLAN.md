@@ -40,7 +40,7 @@ Build slices: backend/manual loop -> frontend -> provider monitoring -> review/f
 
 ## Docker delivery
 
-After application verification, delegate Dockerfile, compose.yaml and .dockerignore to Claude. Provide `docker compose up --build` with no host Python/Node requirements, persistent named SQLite/secret storage, localhost port exposure, and provider variables interpolated from optional .env. Do not bake secrets or local data into the image. Use one worker with multiple threads so manual actions remain responsive during inference and in-process observation locks stay valid. Host Ollama uses host.docker.internal with Linux host-gateway mapping. Document container-specific AWS credential configuration; never mount host credentials implicitly. Build/validate/run the container if Docker is available; label unavailable runtime checks explicitly.
+After application verification, delegate Dockerfile, compose.yaml and .dockerignore to Claude. Provide `docker compose up --build` with no host Python/Node requirements, persistent named SQLite/secret storage, localhost port 5050 (configurable via SOUS_PORT), and provider variables interpolated from optional .env. Port 5000 is occupied by macOS Control Center on this machine. Do not bake secrets or local data into the image. Use one worker with multiple threads so manual actions remain responsive during inference and in-process observation locks stay valid. Host Ollama uses host.docker.internal with Linux host-gateway mapping. Document container-specific AWS credential configuration; never mount host credentials implicitly. Build/validate/run the container if Docker is available; label unavailable runtime checks explicitly.
 
 ## References
 

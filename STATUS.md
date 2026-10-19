@@ -2,10 +2,10 @@
 
 ## Current
 
-- Phase: frontend implementation.
-- Active: Luna building U1 interface and isolated WebKit tests; Codex reviewing backend and coordinating.
-- Blockers: Docker CLI/Compose available but daemon not running; packaging runtime checks will need it started. No configured live model yet.
-- Next checkpoint: verify/commit backend, test Luna's UI, then delegate P1 provider integration to Claude Opus.
+- Phase: provider integration.
+- Active: Claude Opus implementing P1 adapters/validation fixes; Codex verifying/committing Luna's interface.
+- Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
+- Next checkpoint: run provider tests and live local inference, independent review, then Docker packaging.
 
 ## Milestones
 
@@ -21,3 +21,6 @@
 - 2026-10-19T20:32Z: Installed official Playwright package in project venv and WebKit 27.2 runtime under /private/tmp/sous-webkit. No personal browser opened. Claude has written backend/recipe/config files and is completing tests; Luna remains read-only pending handoff.
 - 2026-10-19: User requested final Docker Compose packaging for cross-platform dependency isolation; added as final delivery milestone.
 - 2026-10-19T20:34Z: Claude completed B1 using claude-opus-5-5 (confirmed returned usage). Codex ran all 16 actual backend tests successfully; Claude's reported count of 18 was corrected. B1 includes observation hook/state safeguards, real adapters pending P1. Luna authorized U1 as sole implementation writer.
+- 2026-10-19T20:35Z: Docker Desktop started successfully; Docker server 29.8.2 verified. Existing Ollama service has qwen3-vl:8b with vision support; local live smoke test planned with synthetic test image only.
+- 2026-10-19T20:42Z: Isolated WebKit cooking-flow, permission-denial fallback, and synthetic snapshot/timer-race tests passed (3 passed; optional live inference intentionally skipped until P1). Viewed desktop/mobile screenshots; Luna applying a small skip-link capture polish before UI commit. No physical camera or microphone accessed.
+- 2026-10-19T20:43Z: Luna finished UI/accessibility polish. Targeted WebKit recheck passed (7.275s); P1 dispatched to Claude explicitly with --model opus, bounded backend/provider scope; no concurrent implementation writer.

@@ -8,6 +8,11 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 
 - 2026-10-19: `.venv/bin/python -m unittest discover -s tests -v` — 16 tests passed (0.214 s final B1 run). Coverage includes state persistence, navigation/corrections, timers, CSRF/origin protection, observation threshold/stale-result/busy handling with mocked provider module.
 - Docker CLI and Compose are installed; initial `docker info` could not connect because its daemon socket does not exist. Container runtime verification pending.
+- Docker Desktop was started through its official CLI; Docker server 29.8.2 now responds. Container build/run still pending packaging.
+- Local Ollama `/api/tags` confirms an existing vision-capable `qwen3-vl:8b`; live synthetic-image analysis pending provider adapter.
+- 2026-10-19: `TMPDIR=/private/tmp SOUS_BROWSER_TESTS=1 PLAYWRIGHT_BROWSERS_PATH=/private/tmp/sous-webkit .venv/bin/python -m unittest tests.test_browser -v` — 3 passed, 1 optional live-inference case skipped, 15.295s. Verified manual next/back/correction, timer command/expiry, reload/recovery, completion/new/end, simulated denied camera permission, and generated video snapshot through the API with a delayed-response/timer acknowledgement race. No page errors or unexpected console errors in passing cases.
+- Viewed desktop/mobile screenshots under `/private/tmp/sous-webkit-artifacts`. No physical webcam/microphone or personal browser accessed. Real hardware framing and audible speech remain manual checks.
+- After accessibility/screenshot polish, reran the manual cooking scenario including keyboard skip-link behavior: passed in 7.275s. Screenshot capture resets focus/scroll; unfocused skip link remains clipped.
 
 ## Test environment
 

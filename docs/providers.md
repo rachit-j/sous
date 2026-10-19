@@ -8,6 +8,8 @@ Run your existing Ollama service with an installed image-capable model. Set `OLL
 
 The adapter uses image-bearing messages with `/api/chat` and disables streaming. [Official chat API](https://docs.ollama.com/api/chat).
 
+The first request may load a cold model into memory. Sous allows a longer local inference timeout and keeps manual steps/timers usable while analysis runs. The current development machine already has `qwen3-vl:8b`; other machines must install an image-capable model separately or use a hosted provider.
+
 ## OpenAI
 
 Set `OPENAI_API_KEY` and `OPENAI_MODEL` to an image-capable API model available to your account. A ChatGPT subscription/login does not configure this application API key. The adapter uses the Responses API with image inputs. [Official vision guide](https://developers.openai.com/api/docs/guides/images-vision).

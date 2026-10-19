@@ -28,3 +28,11 @@ Codex recorded initial repository state and read Claude instructions. Claude CLI
 ### B1/U1 dispatch
 
 Existing subscription authentication verified outside sandbox. Luna is reviewing docs/api.md read-only. Claude will implement the backend/manual loop and test contract using file tools only; Codex runs tests. Provider network analysis is P1, after UI handoff. Both must preserve all user/shared docs.
+
+### Model preference
+
+User requested mostly Claude Opus, with Sonnet for easy tasks at Codex's judgment. B1 was already running with the configured default; subsequent substantive calls must pass --model opus. Luna remains gpt-6-luna as requested.
+
+### U1 review and setup evidence
+
+Luna reviewed the contract read-only and found no blockers. Backend and UI shape remain docs/api.md. Codex created a Python 3.12 venv and installed Flask/python-dotenv/requests/boto3 using uv; sandbox PyPI DNS failed, external network execution succeeded. After setup, Codex only coordinates, reviews, tests, documents and commits; application fixes are delegated.

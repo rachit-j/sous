@@ -10,6 +10,7 @@ A local laptop-webcam assistant for one scrambled-eggs cooking session: persiste
 - Codex maintains current phase, assignments, blockers, next checkpoint, and timestamped milestones in STATUS.md; records handoffs and resolutions in agents/communications.md.
 - Keep documentation graph-friendly with stable headings, filenames, relative links, and evidence references. Never store private CLI artifacts in Git.
 - Follow CC-Instructions.md: preflight authentication, bounded file-tool delegation, private temporary briefs/results, exact-session resumption, no recursive agents, no bypass permissions. Inspect results and changes; Codex runs checks.
+- Select Claude Opus for substantive tasks, Sonnet only for simple follow-ups. B1 began on the configured default before this preference arrived.
 - Delegate backend/state and provider integration to Claude Code, frontend to Luna, then independent review. One writer at a time; read-only review may overlap stable inputs.
 - No arbitrary code execution, generated utility/system scripts, or custom binaries. Ordinary inspection/editing, authorized Claude CLI, dependency setup, app execution, and tests only. Codex commits verified milestones frequently; no pushes/deployment.
 - Use find-skills when a concrete workflow need calls for discovery; no silent installation.

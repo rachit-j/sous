@@ -15,3 +15,5 @@
 - 2026-10-19: Established shared instructions, plan, status, documentation index, API contract, and agent communication log.
 - 2026-10-19T20:27Z: Verified Claude authenticated via existing subscription outside sandbox. Delegated Luna's read-only interface contract review.
 - 2026-10-19: User authorized frequent commits. Codex will commit verified milestones; no pushes or deployments.
+- 2026-10-19T20:29Z: Luna completed read-only contract review with no blocking gaps. Created local Python 3.12 environment and installed planned dependencies; PyPI required network access outside sandbox and succeeded.
+- 2026-10-19T20:29Z: Setup documentation is ready; Codex now acts as orchestrator, delegating application code and fixes while maintaining docs, verification and commits.

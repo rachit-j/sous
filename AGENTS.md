@@ -9,7 +9,9 @@ Read CC-Instructions.md before delegating to Claude Code.
 ## Responsibilities
 
 - Codex organizes work, owns integration and final verification, and maintains PLAN.md, STATUS.md, and agents/communications.md.
+- After setup Codex remains the orchestrator: delegate application implementation/fixes; personally inspect, verify, coordinate, document and commit milestones.
 - Claude Code implements bounded backend/provider tasks using the workflow in CC-Instructions.md.
+- Use Claude Opus explicitly for substantial implementation, reasoning, and review; Sonnet may handle straightforward fixes at Codex's discretion. Keep configured effort unless the user specifies it.
 - Luna (gpt-6-luna) implements the interface and performs bounded reviews.
 - Assign explicit goals, context, allowed files, constraints, mode, acceptance checks, and expected return. Agents may not recursively delegate or initiate automatic review loops.
 - Only one implementation agent writes in this checkout at a time. Other agents may inspect stable files read-only. Wait for the writer to finish before changing its files.

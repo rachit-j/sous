@@ -54,6 +54,10 @@ Opus owns bounded template/CSS work and necessary UI wiring/test changes, guided
 
 Add an explicitly simulated recipe using four static hand poses, with no ingredients or cooking materials. Load it through the existing JSON recipe mechanism after the default cooking recipe. Instructions explain holding poses for camera samples and using manual controls; final completion remains manual. No gesture-specific engine logic, fake model results or recognition guarantee. Luna owns recipe data and usage documentation; Codex checks loading/API exposure, rebuilds Compose with persistent data retained and commits.
 
+## UI iteration: analysis thinking dots
+
+Work on feature/ui-thinking-dots, leaving main unchanged. Opus implements a small three-dot analysis indicator in the existing grey visual system; Luna reviews. Display meaningful accessible text while the actual observation request is pending, hide decorative dots from assistive technology, respect reduced motion, and clear the indicator on completion, failure or cancellation. Preserve camera privacy and existing state guards. Codex checks delayed-request and cancellation behavior in isolated WebKit, inspects desktop/mobile captures, commits and rebuilds local Compose.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

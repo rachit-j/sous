@@ -134,3 +134,7 @@ User requested a recipe that can be tested at a desk without cooking materials. 
 ### Desk demo return
 
 Luna added four poses and usage instructions, then corrected final-step copy to explicitly require Finish cooking. Codex inspected data/docs, ran eight focused loader/config tests successfully, rebuilt Compose retaining data, and confirmed API lists the default recipe followed by desk-demo with four steps and no ingredients. No UI/engine/provider changes or physical-camera tests. Gesture reliability is not guaranteed; manual Next and final Finish remain available.
+
+### U4 thinking dots dispatch
+
+User requested a new UI branch and Opus/Luna work, starting with analysis thinking dots. Root created feature/ui-thinking-dots from clean main. Opus sole writer for template/CSS/JS and focused browser tests, using Frontend UI Engineering guidance: three subtle decorative dots during actual inference, accessible status text, reduced-motion support and terminal/cancellation cleanup. No backend/model changes. Luna reviews stable diff after implementation; Codex owns docs/tests/commit/local Compose rebuild.

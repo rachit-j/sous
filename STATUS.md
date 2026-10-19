@@ -2,10 +2,10 @@
 
 ## Current
 
-- Phase: UI redesign delivered.
-- Active: redesigned Compose app at http://127.0.0.1:5050 now includes a no-materials desk demo recipe with four hand poses.
+- Phase: UI iteration on feature/ui-thinking-dots.
+- Active: Opus implementing analysis thinking dots; existing Compose app remains available on5050.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: user trial of the redesigned workspace; physical camera/audio and live cloud checks remain configuration-dependent.
+- Next checkpoint: Luna review and isolated WebKit verification of pending, completion and cancellation states, then local Docker update.
 
 ## Milestones
 

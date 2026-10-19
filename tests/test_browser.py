@@ -169,7 +169,7 @@ class SousBrowserTests(unittest.TestCase):
         page.get_by_role("heading", name="Transfer to plate", level=2).wait_for()
         page.locator("#finish-button").click()
         page.locator("#completion-panel").wait_for(state="visible")
-        page.get_by_role("heading", name="That’s a good plate.").wait_for()
+        page.get_by_role("heading", name="Cooking complete.").wait_for()
 
         page.get_by_role("button", name="Start another session").click()
         self.start_session()

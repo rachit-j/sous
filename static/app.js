@@ -231,7 +231,7 @@
     const step = recipe.steps[session.step_index];
     const last = session.step_index === recipe.steps.length - 1;
     $("#session-recipe-name").textContent = recipe.name;
-    $("#session-title").textContent = session.status === "completed" ? "That’s a good plate." : step.title;
+    $("#session-title").textContent = session.status === "completed" ? "Cooking complete." : step.title;
     $("#mode-badge").textContent = session.mode === "assistive" ? "Talk me through it" : "Keep an eye out";
     const badge = $("#monitoring-badge");
     badge.classList.toggle("active", session.monitoring);
@@ -688,7 +688,7 @@
     $("#setup-panel").hidden = true;
     $("#completion-panel").hidden = false;
     const completed = status === "completed";
-    $("#completion-title").textContent = completed ? "That’s a good plate." : "Session ended for now.";
+    $("#completion-title").textContent = completed ? "Cooking complete." : "Session ended for now.";
     $("#completion-copy").textContent = completed ? "You’ve finished cooking. Enjoy your meal." : "Your progress is saved. Start a new session whenever you’re ready.";
     setConnection(completed ? "Session complete" : "Session ended");
     $("#new-session").focus({ preventScroll: true });

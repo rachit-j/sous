@@ -44,6 +44,12 @@ User correction: recipes must be data-driven. After P1, delegate moving bundled 
 
 After application verification, delegate Dockerfile, compose.yaml and .dockerignore to Claude. Provide `docker compose up --build` with no host Python/Node requirements, persistent named SQLite/secret storage, localhost port 5050 (configurable via SOUS_PORT), and provider variables interpolated from optional .env. Port 5000 is occupied by macOS Control Center on this machine. Do not bake secrets or local data into the image. Use one worker with multiple threads so manual actions remain responsive during inference and in-process observation locks stay valid. Host Ollama uses host.docker.internal with Linux host-gateway mapping. Document container-specific AWS credential configuration; never mount host credentials implicitly. Build/validate/run the container if Docker is available; label unavailable runtime checks explicitly.
 
+## UI redesign
+
+User requested Claude Opus to redesign the interface using UI skills. Replace the warm visual identity with near-white/cool-grey surfaces, charcoal controls and typography, and restrained color for selection and status. Improve setup, current-step hierarchy, camera/timer/recipe organization and completion while preserving all cooking behavior, generic recipes and privacy controls.
+
+Opus owns bounded template/CSS work and necessary UI wiring/test changes, guided by Impeccable and Frontend UI Engineering. Use written guidance without custom executables, respecting execution restrictions. Codex coordinates; Luna independently reviews. Verify setup and cooking at desktop and390px in isolated WebKit under /tmp, run relevant regression checks, record the visual system in docs/design.md, commit the verified milestone and rebuild the local Compose app with persistent storage retained.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

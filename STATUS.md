@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: MVP delivered.
-- Active: normal Compose app running at http://127.0.0.1:5050; implementation/review work complete.
+- Phase: UI redesign.
+- Active: Claude Opus redesigning setup and cooking views; existing Compose app remains available at http://127.0.0.1:5050.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: user trial with physical webcam/microphone and real cooking. Optional cloud providers need credentials/model access.
+- Next checkpoint: inspect desktop/mobile WebKit renders, review preserved behavior, and rebuild Compose with the redesigned UI.
 
 ## Milestones
+
+- 2026-10-19: User requested clean modern UI with grey accents and splashes of color. Delegated bounded redesign to Claude Opus using Impeccable and Frontend UI Engineering written guidance. No custom skill executables; existing user execution restrictions apply. Codex retains integration, isolated WebKit verification, documentation and commits.
 
 - 2026-10-19: Read proposal and CC-Instructions.md; plan approved for implementation.
 - 2026-10-19: Initial Git state has only user-owned untracked CC-Instructions.md and HAI Project Proposal.md. No existing application.

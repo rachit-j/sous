@@ -114,3 +114,7 @@ Sonnet enforced dedicated test-project/port identity before mutation, /tmp-only 
 ### Delivery
 
 Normal app is running as sous-sous-1 with fresh sous_sous-instance volume, published only127.0.0.1:5050. HTTP200 root page and session:null verified. Docker test project stopped, its volume retained. All requested implementation/review tasks complete; runtime/hardware/cloud limitations documented in docs/validation.md. Codex commits final package/docs locally, no push/deploy.
+
+### U3 redesign dispatch
+
+User explicitly assigns redesign to Claude Opus, overriding the original frontend ownership split. Opus is sole application writer for templates/index.html, static/style.css, optional markup-related static/app.js changes, meaningful browser viewport checks/captures in tests/test_browser.py, and docs/design.md. Direction: clean modern grey surfaces, charcoal hierarchy and restrained state/action color. Read Impeccable and Frontend UI Engineering guidance; do not execute custom skill launchers. Preserve DOM IDs, generic recipes, camera opt-in, stale-result safeguards and all existing cooking behavior. Codex owns root docs, review, isolated WebKit verification, commits and local Compose rebuild. Luna will review stable changes read-only after implementation.

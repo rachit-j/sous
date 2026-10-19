@@ -166,3 +166,7 @@ Final evidence: backend discovery after UI passed76 reported cases in7.064s (5 o
 ### Settings delivery
 
 Final normal image rebuilt; in-image discovery passed 76 reported tests in 4.058s (5 optional skips). Normal stack serves HTTP200 on5050, with uninitialized locked vault and 10-second default confirmed via safe status fields only. Dedicated test stack stopped, volume retained. Reviewer confirmed recipe/default and lock-button fixes resolved. Root commits UI and documentation on the existing feature branch; no merge/push. User enters real Bedrock keys through Settings, not agent tools; live cloud invocation remains unverified.
+
+### User validation and commit handoff
+
+User configured Bedrock and ran the desk demo. Root's read-only session inspection confirmed real Nova Lite inference and automatic palm-to-fist advancement; fist then had one qualifying95% observation. No keys or image data read by agents. User requested all app work committed and will handle push/MR. Existing app changes already committed; root records live validation in docs and commits it. Separate Opus task owns untracked brag-output/; do not stage, alter or interrupt it.

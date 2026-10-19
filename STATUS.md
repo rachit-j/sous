@@ -3,11 +3,13 @@
 ## Current
 
 - Phase: secure Bedrock Settings delivered on feature/ui-thinking-dots.
-- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. New vault is uninitialized and locked; snapshot interval defaults to 10 seconds.
+- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. User configured Bedrock through Settings and verified the desk demo; snapshot interval defaults to 10 seconds.
 - Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
-- Next checkpoint: user creates a passphrase in Settings, enters Bedrock credentials/region, selects a model and tests live inference. Ollama remains off; live AWS has not been invoked.
+- Next checkpoint: user handles push and MR. Opus is independently working on brag-output/; leave its in-progress files untouched.
 
 ## Milestones
+
+- 2026-10-19: User-driven live Bedrock test succeeded with amazon.nova-lite-v1:0. Read-only live-session inspection confirmed automatic advancement from Open palm to Closed fist, followed by a qualifying fist observation at95% confidence (1 of2 confirmations). This verifies real managed Bedrock inference and automatic progression for the desk demo; real cooking accuracy and audio remain unevaluated. No credentials or camera images were accessed by agents. App work committed; brag-output/ remains owned by the separate in-progress Opus task.
 
 - 2026-10-19: Settings delivery verified. All 14 non-live browser scenarios covered across full/targeted runs; final three affected cases passed in 12.261s after recipe/default refresh, camera-permission harness and repeat-lock fixes. Independent reviewer confirmed listed issues resolved. Two isolated Docker persistence tests passed in 6.571s. Final Linux-image discovery passed 76 reported tests in 4.058s (5 optional skips). Normal Compose rebuilt with data retained; HTTP200, new vault state and default 10-second interval confirmed. Test stack stopped without volume deletion. No real credentials, physical camera, personal browser, live AWS or Ollama used.
 

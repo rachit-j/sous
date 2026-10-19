@@ -2,8 +2,8 @@
 
 ## Current
 
-- Phase: generic recipe support and live inference verification.
-- Active: Claude Opus implementing G1 JSON recipes/snapshots; fresh Luna reviewing committed P1 provider code; Codex monitoring real local inference.
+- Phase: review fixes and frontend recipe integration.
+- Active: Luna implementing snapshot-aware UI and camera-permission regression; Codex verified Sonnet audit fix and coordinating Docker handoff.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
 - Next checkpoint: run provider tests and live local inference, independent review, then Docker packaging.
 
@@ -31,3 +31,5 @@
 - 2026-10-19T20:49Z: Real qwen3-vl:8b inference through Flask and isolated WebKit passed in51.056s from cold start, using a generated canvas frame. No physical camera or cloud API used.
 - 2026-10-19: Independent provider review found no concrete adapter wire/parser defects. One P2 audit metadata issue queued: late observations/errors must retain their original step/revision context rather than the freshly corrected step; stale failures should return409.
 - 2026-10-19T20:52Z: G1 completed by Opus; Codex ran44 tests successfully. JSON recipe loading, different step counts, immutable session recipes and additive legacy database migration covered. Preparing small Sonnet audit-log correction, then Luna snapshot-aware UI/camera-race fix.
+- 2026-10-19: G1 committed0025e58. Sonnet dispatched only for small audit regression/test-decoupling follow-up; larger implementation tasks used Opus.
+- 2026-10-19T20:54Z: Sonnet audit fix complete and46 tests passed. Stale success/failure audit rows retain request context; stale failures return409. Generic loader has no food-specific alias/import-time default load. Luna authorized final UI snapshot/camera fix as sole writer.

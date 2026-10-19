@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from recipes import RECIPES, RecipeError, load_recipes
+from recipes import RecipeError, load_recipes
 
 STEP = {"title": "Prepare", "instruction": "Do the thing.", "visual_cue": "The thing is visibly done."}
 
@@ -31,7 +31,6 @@ class LoaderTests(unittest.TestCase):
         self.assertIn(fragment, str(caught.exception))
 
     def test_bundled_sample_loads_first(self):
-        self.assertEqual(next(iter(RECIPES)), "scrambled-eggs")
         self.assertEqual(next(iter(load_recipes())), "scrambled-eggs")
 
     def test_loads_custom_recipes_in_filename_order_with_any_step_count(self):

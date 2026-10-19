@@ -9,7 +9,9 @@ from botocore.exceptions import ClientError, NoCredentialsError, ReadTimeoutErro
 
 import providers
 from providers import InvalidOutput, ProviderError, analyze, parse_observation
-from recipes import SCRAMBLED_EGGS
+from recipes import load_recipes
+
+SCRAMBLED_EGGS = load_recipes()["scrambled-eggs"]  # bundled sample used as a fixture
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x01" * 32 + b"\xff\xd9"
 JPEG_B64 = base64.b64encode(JPEG).decode()

@@ -94,3 +94,7 @@ No concrete adapter wire/parser defect found. One P2 in observation persistence:
 ### G1 return
 
 44 tests observed passing. Recipe JSON loaded per app from RECIPE_DIR (default bundled recipes/), variable step counts supported, snapshot stored and exposed as session.recipe, additive old DB migration preserves session/timer/events. Missing legacy definition yields recipe:null; end/pause/timers remain available. Luna should prefer session.recipe and render missing-definition session with End/timer controls only. Small Sonnet follow-up will fix audit metadata and remove loader's test-only food alias/import-time load, leaving food-specific references in fixtures/data only.
+
+### Audit fix / U2 dispatch
+
+Sonnet completed minimal audit fix and removed loader's test-only food-specific exports/import-time load. Codex ran46 tests successfully; late success/failure provenance checked and in-order failures still502. Luna now sole writer for templates/index.html, static/app.js, tests/test_browser.py and style only as needed: generic setup copy, session snapshot preference, legacy unavailable recipe controls, stale camera-permission lifecycle guard, and generated-only browser regressions for short recipes/snapshot restoration and camera request A resolving during sessionB.

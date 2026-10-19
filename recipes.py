@@ -68,8 +68,3 @@ def validate_recipe(data, source):
             for i, step in enumerate(steps)
         ],
     }
-
-
-RECIPES = load_recipes()
-# Bundled sample; referenced by tests/test_providers.py. The engine never uses it.
-SCRAMBLED_EGGS = RECIPES.get("scrambled-eggs")

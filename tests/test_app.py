@@ -306,13 +306,39 @@ class ObservationTests(SousTestCase):
     def test_late_observation_after_correction_is_discarded(self):
         def correct_meanwhile():
             with closing(sqlite3.connect(self.db_path)) as db:
-                db.execute("UPDATE sessions SET revision = revision + 1")
+                db.execute("UPDATE sessions SET revision = revision + 1, step_index = 3")
                 db.commit()
         self.on_analyze = correct_meanwhile
         self.outputs = [observation()]
         self.assertEqual(self.observe(self.session).status_code, 409)
         s = self.current()
-        self.assertEqual((s["completion_streak"], s["latest_observation"]), (0, None))
+        self.assertEqual((s["completion_streak"], s["latest_observation"], s["step_index"]), (0, None, 3))
+        self.assertEqual(self.recorded(), [(0, self.session["revision"], "stale")])
+
+    def test_late_provider_failure_after_correction_is_stale_not_502(self):
+        def correct_meanwhile():
+            self.act(self.session["id"], "correct", step_index=3)
+        self.on_analyze = correct_meanwhile
+        self.outputs = [RuntimeError("upstream said key sk-leak is bad")]
+        resp = self.observe(self.session)
+        self.assertEqual(resp.status_code, 409)
+        self.assertNotIn("sk-leak", resp.get_data(as_text=True))
+        s = self.current()
+        self.assertEqual((s["step_index"], s["completion_streak"], s["latest_observation"]), (3, 0, None))
+        self.assertEqual(self.recorded(), [(0, self.session["revision"], "stale: RuntimeError")])
+
+    def test_late_provider_failure_after_pause_is_stale(self):
+        self.on_analyze = lambda: self.act(self.session["id"], "pause")
+        self.outputs = [{**observation(), "step_complete": "yes"}]
+        self.assertEqual(self.observe(self.session).status_code, 409)
+        self.assertFalse(self.current()["monitoring"])
+        (step, revision, error), = self.recorded()
+        self.assertEqual((step, revision), (0, self.session["revision"]))
+        self.assertTrue(error.startswith("stale: invalid_output"))
+
+    def recorded(self):
+        with closing(sqlite3.connect(self.db_path)) as db:
+            return list(db.execute("SELECT step_index, revision, error FROM observations ORDER BY id"))
 
     def test_only_one_analysis_runs_per_session(self):
         other, other_token = self.browser(self.app)

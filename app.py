@@ -609,15 +609,17 @@ def register_routes(app):
             at = now()
 
             with transaction(db):
+                # Fresh state decides staleness and receives a valid result; the audit row keeps
+                # the metadata (step, provider, model) the request actually started with.
                 fresh = load_session(db, session_id)
-                if error:
-                    record_observation(db, fresh, revision, at, latency_ms, error=error)
-                    stale = False
+                stale = (fresh["status"] != "active" or not fresh["monitoring"]
+                         or fresh["revision"] != revision)
+                if stale:
+                    record_observation(db, row, revision, at, latency_ms, obs,
+                                       f"stale: {error}" if error else "stale")
                 else:
-                    stale = (fresh["status"] != "active" or not fresh["monitoring"]
-                             or fresh["revision"] != revision)
-                    record_observation(db, fresh, revision, at, latency_ms, obs, "stale" if stale else None)
-                    if not stale:
+                    record_observation(db, row, revision, at, latency_ms, obs, error)
+                    if not error:
                         changes, events = apply_observation(fresh, obs, at)
                         update_session(db, session_id, changes)
                         for kind, message in events:
@@ -626,10 +628,10 @@ def register_routes(app):
             with busy["lock"]:
                 busy["busy"].discard(session_id)
 
+        if stale:
+            raise ApiError(409, "Observation is stale; refresh session state.")
         if error:
             if error.startswith("invalid_output"):
                 raise ApiError(502, "The model returned an unusable observation. Try again.")
             raise ApiError(502, "Analysis failed. Manual controls still work; try again.")
-        if stale:
-            raise ApiError(409, "Observation is stale; refresh session state.")
         return respond_session(session_id)

@@ -2,6 +2,10 @@
 
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
+## Conversational voice — 2026-10-19
+
+Root pulled main (0cadc7a) and created feature/conversational-voice, preserving untracked brag-output/. User chose AWS and back-and-forth speech with interruption. Contract: [voice](../docs/voice.md). Opus is sole backend writer; Luna completed read-only UI planning and awaits backend handoff. Root owns docs, verification, integration and commits. SDK0.12.0 requires explicit AWS CRT duplex transport; its default aiohttp transport cannot stream both directions. Official SDK/CRT development dependencies installed. No live AWS call or physical microphone testing by agents.
+
 ## Shared decisions
 
 - Read [AGENTS.md](../AGENTS.md), [PLAN.md](../PLAN.md), and [API contract](../docs/api.md).

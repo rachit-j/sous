@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: secure Bedrock Settings delivered on feature/ui-thinking-dots.
-- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. User configured Bedrock through Settings and verified the desk demo; snapshot interval defaults to 10 seconds.
-- Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
-- Next checkpoint: user handles push and MR. Opus is independently working on brag-output/; leave its in-progress files untouched.
+- Phase: conversational AWS voice on feature/conversational-voice, branched from pulled main (0cadc7a).
+- Active: Opus backend handoff and Luna UI planning for opt-in Nova 2 Sonic with interruption. Existing Compose app remains at http://127.0.0.1:5050.
+- Blockers: none. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
+- Next checkpoint: backend verification/commit, then Luna UI and isolated WebKit/Docker verification. Preserve unrelated brag-output/.
 
 ## Milestones
+
+- 2026-10-19: Pulled main and created feature/conversational-voice. User chose AWS and back-and-forth voice with interruption. Defined docs/voice.md contract and installed official SDK plus CRT transport. Initial sandbox dependency download hit restricted DNS; authorized dependency installation outside sandbox succeeded. No user credentials accessed or live voice call.
 
 - 2026-10-19: User-driven live Bedrock test succeeded with amazon.nova-lite-v1:0. Read-only live-session inspection confirmed automatic advancement from Open palm to Closed fist, followed by a qualifying fist observation at95% confidence (1 of2 confirmations). This verifies real managed Bedrock inference and automatic progression for the desk demo; real cooking accuracy and audio remain unevaluated. No credentials or camera images were accessed by agents. App work committed; brag-output/ remains owned by the separate in-progress Opus task.
 

@@ -64,6 +64,10 @@ Implement [secure provider settings](docs/settings.md) on this branch. User appr
 
 User also requested snapshot frequency settings:10-second default,15-second maximum. Accept integer seconds1–15, persist this nonsecret preference, use it in the actual camera scheduler and retain single-request-at-a-time behavior. Settings explains shorter intervals can increase cloud usage.
 
+## Conversational voice
+
+Implement [AWS live voice](docs/voice.md) on feature/conversational-voice, created after pulling main. User chose existing AWS credentials and back-and-forth speech with interruption. Opus owns secure duplex backend; Luna owns opt-in audio UI and voice Settings. Codex coordinates, reviews, verifies synthetic tests and Docker, and commits milestones. Preserve unrelated brag-output/. Voice uses server-authoritative recipe context without changing cooking state. Real AWS audio and microphone remain for the user's final trial.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

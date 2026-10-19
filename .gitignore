@@ -1,0 +1,25 @@
+# Secrets and local state
+.env
+.env.*
+!.env.example
+instance/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+
+# Captured media must never be committed
+*.jpg
+*.jpeg
+*.wav
+*.webm
+!tests/fixtures/*.jpg
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS / tools
+.DS_Store

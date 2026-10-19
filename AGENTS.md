@@ -20,6 +20,7 @@ Read CC-Instructions.md before delegating to Claude Code.
 ## Execution limits
 
 - No arbitrary code execution, generated utility scripts, system code, or custom binaries.
+- Never use the user's Chrome, personal browsers, profiles, tabs or sessions for testing. Use only an isolated WebKit testing browser installed under /tmp with a temporary profile. Browser automation must be app tests, not unrelated system automation.
 - Ordinary file inspection/editing, approved Claude CLI delegation, dependency setup, app execution, and meaningful tests are allowed. Do not execute application code for unrelated automation.
 - Claude tools: Read, Glob, Grep for review; add Edit, Write for implementation. Codex runs commands/tests. Never bypass permissions.
 - Use the find-skills skill when a specific workflow need calls for skill discovery. Inspect available skills first; do not silently install tools or skills.
@@ -32,4 +33,5 @@ Read CC-Instructions.md before delegating to Claude Code.
 - Validate external inputs and model outputs; preserve manual controls on model failure.
 - Model confidence is heuristic. Camera observations cannot verify food safety.
 - Test state transitions, stale observations, timers, provider mapping/failure, and persistence. Browser-check actual UI behavior.
+- Final delivery includes Dockerfile/Compose, persistent named storage, optional provider env configuration and no host language dependency requirements. No implicit host-credential mounts. Codex verifies Compose/build/run when a Docker daemon is available.
 - Update linked Markdown docs when behavior or interfaces change. Use stable filenames/headings and relative links for later graphing.

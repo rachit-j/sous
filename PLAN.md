@@ -11,6 +11,7 @@ A local laptop-webcam assistant for one scrambled-eggs cooking session: persiste
 - Keep documentation graph-friendly with stable headings, filenames, relative links, and evidence references. Never store private CLI artifacts in Git.
 - Follow CC-Instructions.md: preflight authentication, bounded file-tool delegation, private temporary briefs/results, exact-session resumption, no recursive agents, no bypass permissions. Inspect results and changes; Codex runs checks.
 - Select Claude Opus for substantive tasks, Sonnet only for simple follow-ups. B1 began on the configured default before this preference arrived.
+- Browser testing uses an isolated Playwright WebKit installation/profile under /tmp only. Never use personal Chrome or other personal browsers/sessions.
 - Delegate backend/state and provider integration to Claude Code, frontend to Luna, then independent review. One writer at a time; read-only review may overlap stable inputs.
 - No arbitrary code execution, generated utility/system scripts, or custom binaries. Ordinary inspection/editing, authorized Claude CLI, dependency setup, app execution, and tests only. Codex commits verified milestones frequently; no pushes/deployment.
 - Use find-skills when a concrete workflow need calls for discovery; no silent installation.
@@ -36,6 +37,10 @@ A local laptop-webcam assistant for one scrambled-eggs cooking session: persiste
 See [API contract](docs/api.md). Validate inputs, upload limits, provider responses, origins and CSRF tokens; time out remote requests.
 
 Build slices: backend/manual loop -> frontend -> provider monitoring -> review/fixes -> runtime verification. Use unittest/Flask test client with mocked providers. Verify persistence, corrections, bounds, qualifying/uncertain/late observations, timer deduplication, credentials/timeouts/malformed outputs, permission failures, and UI recovery. Live-smoke-test available configured providers; explicitly label others unverified.
+
+## Docker delivery
+
+After application verification, delegate Dockerfile, compose.yaml and .dockerignore to Claude. Provide `docker compose up --build` with no host Python/Node requirements, persistent named SQLite/secret storage, localhost port exposure, and provider variables interpolated from optional .env. Do not bake secrets or local data into the image. Use one worker with multiple threads so manual actions remain responsive during inference and in-process observation locks stay valid. Host Ollama uses host.docker.internal with Linux host-gateway mapping. Document container-specific AWS credential configuration; never mount host credentials implicitly. Build/validate/run the container if Docker is available; label unavailable runtime checks explicitly.
 
 ## References
 

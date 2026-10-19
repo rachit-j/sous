@@ -15,8 +15,9 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 |---|---|---|---|
 | B1 | Claude Code | Flask/SQLite recipe loop, actions, tests and dependency configuration | Completed; 16 tests verified by Codex |
 | U1 | Luna | Jinja/JS/CSS interface using agreed API | Completed; browser checks passed, final polish verification running |
-| P1 | Claude Code | Four model adapters and monitoring integration | Implementing with explicit Opus selection |
-| R1 | Luna | Independent completed-flow review | Waiting for implementation |
+| P1 | Claude Code | Four model adapters and monitoring integration | Completed; 32 tests passed, local live smoke running |
+| G1 | Claude Code | Generic JSON recipes and persistent session recipe snapshot | After P1 (user clarification) |
+| R1 | Luna (fresh review context) | Independent completed-flow review | UI review complete; one P2 fix queued; provider review after P1 |
 | V1 | Codex | Inspect, test, run browser, record evidence | Ongoing |
 | D1 | Claude Code | Dockerfile/Compose packaging and container configuration | After application verification |
 
@@ -65,3 +66,15 @@ Codex ran WebKit suite after Luna fixed harness failures (macOS temp-path guard,
 ### P1 dispatch
 
 Claude resumes the exact successful B1 session with explicit Opus. Allowed writes: providers.py, app.py, tests/test_app.py, tests/test_providers.py, .env.example, requirements.txt. Four real REST/SDK adapters, strict parsing/sanitized failures and local cold-start allowance; fixes for malformed recipe/provider types and non-ASCII CSRF, optional trusted-host hardening. Luna has stopped writing. Codex owns tests, documentation, and commits.
+
+### R1 UI review result
+
+Fresh Luna reviewer independently inspected U1 and found one P2: enableCamera awaits getUserMedia and only checks that any session is active. A delayed permission result from an ended session can attach to a replacement session. Queue fix for U1 owner after P1 finishes: capture originating session/request generation, invalidate on cleanup, stop stale returned tracks, ensure no stale UI update. Add synthetic delayed-permission browser regression. No other actionable UI findings reported. Root verified the scenario against enableCamera/cleanupSession/createSession code; no real camera access involved.
+
+### Generic recipe clarification
+
+User: do not tune app to scrambled eggs; it should only be the first loaded recipe. G1 will move sample into recipes/*.json, validate/load structured recipe data, retain a session-specific recipe snapshot and exercise another recipe with a different step count. State machine/prompts must consume recipe data only. Luna's next bounded fix removes eggs-specific setup copy and prefers session.recipe snapshot. No recipe editor/AI generation added. P1 is already running; generic behavior will be checked and corrected after its return rather than starting an overlapping writer.
+
+### P1 return
+
+Claude Opus completed four adapters and reviewed input/host protection. Codex observed 32 tests passing. Model prompt is already generic, scoped to selected current step/cue; no eggs-specific model tuning. Local Ollama uses 180s read timeout; cloud adapters use60s with bounded SDK retry. Live qwen smoke running on synthetic frame. Generic JSON recipe/snapshot implementation is next, then Luna's camera-race/snapshot UI fix.

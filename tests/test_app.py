@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import re
 import sqlite3
@@ -9,6 +10,7 @@ import unittest
 from contextlib import closing
 from unittest import mock
 
+import requests
 from jinja2 import DictLoader
 
 from app import create_app
@@ -93,6 +95,19 @@ class SecurityTests(SousTestCase):
         self.assertIsNone(self.client.get("/api/sessions/active").get_json()["session"])
         self.assertEqual(self.post("/api/sessions", START, Origin="http://localhost").status_code, 201)
 
+    def test_non_ascii_csrf_token_is_rejected_cleanly(self):
+        resp = self.post("/api/sessions", START, token="tökén")
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn("error", resp.get_json())
+        self.assertIsNone(self.client.get("/api/sessions/active").get_json()["session"])
+
+    def test_untrusted_host_is_rejected(self):
+        resp = self.client.get("/api/config", base_url="http://rebind.example")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("error", resp.get_json())
+        for host in ("http://127.0.0.1:5000", "http://localhost:8000"):
+            self.assertEqual(self.client.get("/api/config", base_url=host).status_code, 200, host)
+
     def test_secret_key_is_generated_once_and_reused(self):
         key_file = os.path.join(self.tmp.name, "instance", "secret_key")
         first = self.make_app(SECRET_KEY=None, SECRET_KEY_FILE=key_file)
@@ -106,7 +121,9 @@ class SessionTests(SousTestCase):
         bad_json = self.client.post("/api/sessions", data="{not json", content_type="application/json",
                                     headers={"X-CSRF-Token": self.token})
         self.assertEqual(bad_json.status_code, 400)
-        for bad in ({"recipe_id": "toast"}, {"provider": "mystery"}, {"model": ""}, {"mode": "auto"}):
+        for bad in ({"recipe_id": "toast"}, {"provider": "mystery"}, {"model": ""}, {"mode": "auto"},
+                    {"recipe_id": ["scrambled-eggs"]}, {"recipe_id": {"a": 1}},
+                    {"provider": ["ollama"]}, {"provider": {"a": 1}}, {"mode": ["monitoring"]}):
             self.assertEqual(self.post("/api/sessions", {**START, **bad}).status_code, 400, bad)
         with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
             self.assertEqual(self.post("/api/sessions", {**START, "provider": "openai"}).status_code, 400)
@@ -306,6 +323,44 @@ class ObservationTests(SousTestCase):
         self.outputs = [observation()]
         self.assertEqual(self.observe(self.session).status_code, 200)
         self.assertEqual(inner, [409])
+
+
+class ProviderIntegrationTests(SousTestCase):
+    """Observation route through the real providers module with HTTP mocked (Ollama wire shape)."""
+
+    def setUp(self):
+        super().setUp()
+        env = mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": ""})
+        env.start()
+        self.addCleanup(env.stop)
+        post = mock.patch("providers.requests.post")
+        self.http_post = post.start()
+        self.addCleanup(post.stop)
+        sid = self.start(model="qwen3-vl:8b")["id"]
+        self.session = self.act(sid, "resume")
+
+    def test_ollama_observation_updates_session(self):
+        reply = mock.Mock(status_code=200)
+        reply.json.return_value = {"message": {"role": "assistant", "content": json.dumps(observation())},
+                                   "done": True, "done_reason": "stop"}
+        self.http_post.return_value = reply
+        s = self.observe(self.session).get_json()
+        self.assertEqual((s["completion_streak"], s["latest_observation"]["activity"]), (1, "whisking"))
+        args, kwargs = self.http_post.call_args
+        self.assertEqual(args[0], "http://localhost:11434/api/chat")
+        self.assertEqual(kwargs["json"]["model"], "qwen3-vl:8b")
+        self.assertEqual(kwargs["json"]["messages"][1]["images"], [base64.b64encode(FAKE_JPEG).decode()])
+
+    def test_provider_failure_is_502_sanitized_and_recorded(self):
+        self.http_post.side_effect = requests.ConnectionError("http://internal?token=sk-leak")
+        before = self.client.get(f"/api/sessions/{self.session['id']}").get_json()
+        resp = self.observe(self.session)
+        self.assertEqual(resp.status_code, 502)
+        self.assertNotIn("sk-leak", resp.get_data(as_text=True))
+        self.assertEqual(self.client.get(f"/api/sessions/{self.session['id']}").get_json(), before)
+        with closing(sqlite3.connect(self.db_path)) as db:
+            self.assertEqual(db.execute("SELECT error FROM observations").fetchone()[0],
+                             "Could not reach the provider.")
 
 
 if __name__ == "__main__":

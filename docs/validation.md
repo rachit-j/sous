@@ -13,6 +13,7 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 - 2026-10-19: `TMPDIR=/private/tmp SOUS_BROWSER_TESTS=1 PLAYWRIGHT_BROWSERS_PATH=/private/tmp/sous-webkit .venv/bin/python -m unittest tests.test_browser -v` — 3 passed, 1 optional live-inference case skipped, 15.295s. Verified manual next/back/correction, timer command/expiry, reload/recovery, completion/new/end, simulated denied camera permission, and generated video snapshot through the API with a delayed-response/timer acknowledgement race. No page errors or unexpected console errors in passing cases.
 - Viewed desktop/mobile screenshots under `/private/tmp/sous-webkit-artifacts`. No physical webcam/microphone or personal browser accessed. Real hardware framing and audible speech remain manual checks.
 - After accessibility/screenshot polish, reran the manual cooking scenario including keyboard skip-link behavior: passed in 7.275s. Screenshot capture resets focus/scroll; unfocused skip link remains clipped.
+- 2026-10-19: After P1, full unittest discovery — 32 tests passed in 0.854s, optional browser class skipped. Four provider wire formats, strict parsing, sanitized transport/refusal failures, trusted hosts, malformed session inputs and non-ASCII CSRF regressions covered. Cloud providers have not been live-tested.
 
 ## Test environment
 

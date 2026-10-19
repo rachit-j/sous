@@ -105,6 +105,8 @@ def create_app(test_config=None):
         SECRET_KEY_FILE=os.path.join(app.instance_path, "secret_key"),
         MAX_CONTENT_LENGTH=MAX_REQUEST_BYTES,
         SESSION_COOKIE_SAMESITE="Lax",
+        # Local-only app: reject other Host headers (DNS rebinding). Ports are ignored.
+        TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
         CLOCK=time.time,
     )
     if test_config:
@@ -260,7 +262,8 @@ def check_origin_and_csrf():
         raise ApiError(403, "Cross-origin request rejected.")
     expected = session.get("csrf_token")
     supplied = request.headers.get("X-CSRF-Token", "")
-    if not expected or not hmac.compare_digest(expected, supplied):
+    # Compare bytes: compare_digest raises TypeError for non-ASCII str.
+    if not expected or not hmac.compare_digest(expected.encode(), supplied.encode()):
         raise ApiError(403, "Missing or invalid CSRF token. Reload the page.")
     return None
 
@@ -488,10 +491,10 @@ def register_routes(app):
         body = json_body()
         recipe_id, provider = body.get("recipe_id"), body.get("provider")
         model, mode = body.get("model"), body.get("mode")
-        if recipe_id not in RECIPES:
+        if not isinstance(recipe_id, str) or recipe_id not in RECIPES:
             raise ApiError(400, "Unknown recipe.")
         catalog = {p["id"]: p for p in provider_catalog()}
-        if provider not in catalog:
+        if not isinstance(provider, str) or provider not in catalog:
             raise ApiError(400, "Unknown provider.")
         if not catalog[provider]["configured"]:
             raise ApiError(400, "That provider is not configured on the server.")

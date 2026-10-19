@@ -11,7 +11,7 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 # Allowlist: only runtime files. Docs, agent notes, tests and dev requirements stay out.
-COPY app.py providers.py recipes.py settings.py ./
+COPY app.py providers.py recipes.py settings.py voice.py ./
 COPY recipes/ ./recipes/
 COPY templates/ ./templates/
 COPY static/ ./static/
@@ -24,8 +24,10 @@ USER sous
 
 EXPOSE 5000
 
-# One worker is required: the per-session analysis lock and the startup "pause monitoring"
-# step are process-local. Threads handle concurrent requests. --timeout is gunicorn's worker
-# heartbeat timeout, not a per-request limit; 210 s is above the 180 s local-model read timeout.
+# One worker is required: the per-session analysis lock, the unlocked settings vault and the
+# voice stream limits are process-local. Threads handle concurrent requests; a voice WebSocket
+# holds one thread for its lifetime (at most 1 active + 2 authenticating), so 8 leaves room for
+# normal requests. --timeout is gunicorn's worker heartbeat timeout, not a per-request limit;
+# 210 s is above the 180 s local-model read timeout.
 # --graceful-timeout lets in-flight requests finish on shutdown/restart.
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--worker-class", "gthread", "--threads", "4", "--timeout", "210", "--graceful-timeout", "210", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--worker-class", "gthread", "--threads", "8", "--timeout", "210", "--graceful-timeout", "210", "app:create_app()"]

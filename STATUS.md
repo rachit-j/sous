@@ -3,11 +3,13 @@
 ## Current
 
 - Phase: conversational AWS voice on feature/conversational-voice, branched from pulled main (0cadc7a).
-- Active: Opus backend handoff and Luna UI planning for opt-in Nova 2 Sonic with interruption. Existing Compose app remains at http://127.0.0.1:5050.
+- Active: Opus backend implemented; 96 reported unit tests passed (5 optional skips). Luna is sole UI writer; independent backend review and disposable Docker build underway. Existing Compose app remains at http://127.0.0.1:5050.
 - Blockers: none. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
 - Next checkpoint: backend verification/commit, then Luna UI and isolated WebKit/Docker verification. Preserve unrelated brag-output/.
 
 ## Milestones
+
+- 2026-10-19: Opus (claude-opus-5-5) completed secure voice backend with explicit CRT HTTP/2/static credentials, same-origin/CSRF startup, bounded queues, seven-minute call limit and lock/session teardown. Codex observed 96 tests passing in13.477s (5 optional skips). No live AWS/audio call. Luna owns browser audio/UI; read-only backend review and Linux image dependency build underway.
 
 - 2026-10-19: Pulled main and created feature/conversational-voice. User chose AWS and back-and-forth voice with interruption. Defined docs/voice.md contract and installed official SDK plus CRT transport. Initial sandbox dependency download hit restricted DNS; authorized dependency installation outside sandbox succeeded. No user credentials accessed or live voice call.
 

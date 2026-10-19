@@ -4,6 +4,8 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 
 ## Conversational voice — 2026-10-19
 
+Backend return: Opus implemented voice.py, app integration, SDK/Flask-Sock dependencies, Docker eight-thread runtime and tests. Codex observed96 tests passing,5optional skips. Protocol matches docs/voice.md; speculative assistant text uses final:false and final spoken text final:true, so UI replaces rather than duplicates. Root queued review of timer-ack race and latest-context freshness. Luna is now sole frontend writer, reviewer read-only on backend; fixes wait until writer returns. Root began disposable Linux image build, no user app restart yet.
+
 Root pulled main (0cadc7a) and created feature/conversational-voice, preserving untracked brag-output/. User chose AWS and back-and-forth speech with interruption. Contract: [voice](../docs/voice.md). Opus is sole backend writer; Luna completed read-only UI planning and awaits backend handoff. Root owns docs, verification, integration and commits. SDK0.12.0 requires explicit AWS CRT duplex transport; its default aiohttp transport cannot stream both directions. Official SDK/CRT development dependencies installed. No live AWS call or physical microphone testing by agents.
 
 ## Shared decisions

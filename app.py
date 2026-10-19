@@ -13,8 +13,10 @@ import time
 from contextlib import contextmanager
 
 from flask import Flask, current_app, g, jsonify, render_template, request, session
+from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
 
+import voice
 from recipes import load_recipes
 from settings import SettingsError, Vault, merge_bedrock, validate_model_id
 
@@ -121,6 +123,7 @@ def create_app(test_config=None):
         CLOCK=time.time,
         RECIPE_DIR=None,  # None: bundled recipes/ directory
         SETTINGS_VAULT=None,  # None: settings.vault next to DATABASE (the data volume)
+        SOCK_SERVER_OPTIONS={"max_message_size": voice.MAX_SOCKET_MESSAGE, "ping_interval": 25},
     )
     if test_config:
         app.config.update(test_config)
@@ -132,6 +135,7 @@ def create_app(test_config=None):
         os.path.dirname(os.path.abspath(app.config["DATABASE"])), "settings.vault")
     app.extensions["sous_vault"] = Vault(vault_path, app.config["CLOCK"])  # always starts locked
     app.extensions["sous_discovery"] = threading.Lock()
+    app.extensions["sous_voice"] = voice.new_state()  # tests may replace "open_stream" with a fake
 
     init_db(app.config["DATABASE"], app.config["CLOCK"](), app.extensions["sous_recipes"])
     app.teardown_appcontext(close_db)
@@ -143,6 +147,7 @@ def create_app(test_config=None):
     app.after_request(security_headers)
     register_routes(app)
     register_settings_routes(app)
+    register_voice_routes(app, Sock(app))
     return app
 
 
@@ -314,6 +319,12 @@ def csrf_token():
 
 
 def check_origin_and_csrf():
+    # The voice WebSocket upgrade must come from this origin before it is accepted; its CSRF
+    # token arrives in the first message (voice.serve), before any AWS call.
+    if request.endpoint == "voice_socket":
+        if request.headers.get("Origin") != request.host_url.rstrip("/"):
+            raise ApiError(403, "Cross-origin request rejected.")
+        return None
     # Model discovery is a GET that makes an outbound AWS call, so it also requires the token.
     if request.method in ("GET", "HEAD", "OPTIONS") and request.path != DISCOVERY_PATH:
         return None
@@ -406,6 +417,22 @@ def get_sample_interval(db):
     return value if valid_interval(value) else SAMPLE_INTERVAL
 
 
+def get_voice_id(db):
+    value = get_pref(db, "voice_id")
+    return value if value in voice.VOICES else voice.DEFAULT_VOICE
+
+
+def voice_json(db):
+    """Safe voice metadata from in-memory state; never calls AWS."""
+    available, reason = voice.voice_status(current_vault())
+    data = {"model": voice.MODEL_ID, "voice_id": get_voice_id(db), "available": available}
+    if reason:
+        data["reason"] = reason
+    if reason == voice.UNSUPPORTED_REGION:
+        data["supported_regions"] = list(voice.SUPPORTED_REGIONS)
+    return data
+
+
 def get_defaults(db):
     value = get_pref(db, "defaults")
     known = {p[0] for p in PROVIDERS}
@@ -438,6 +465,7 @@ def settings_json(db):
         "bedrock": bedrock,
         "defaults": get_defaults(db),
         "sample_interval": get_sample_interval(db),
+        "voice": voice_json(db),
     }
 
 
@@ -811,13 +839,19 @@ def register_settings_routes(app):
 
     @app.put("/api/settings/preferences")
     def save_preferences():
-        interval = settings_body().get("sample_interval")
-        if not valid_interval(interval):
+        body = settings_body()
+        known = {"sample_interval", "voice_id"}
+        if not body or not set(body) <= known:
+            raise ApiError(400, "Provide sample_interval and/or voice_id only.")
+        if "sample_interval" in body and not valid_interval(body["sample_interval"]):
             raise ApiError(400, f"sample_interval must be an integer from {MIN_SAMPLE_INTERVAL}"
                                 f" to {MAX_SAMPLE_INTERVAL}.")
+        if "voice_id" in body and body["voice_id"] not in voice.VOICES:
+            raise ApiError(400, f"voice_id must be one of: {', '.join(voice.VOICES)}.")
         db = get_db()
         with transaction(db):
-            set_pref(db, "sample_interval", interval)
+            for key in sorted(body):
+                set_pref(db, key, body[key])
         return respond_settings()
 
     @app.get(DISCOVERY_PATH)
@@ -840,3 +874,12 @@ def register_settings_routes(app):
         finally:
             guard.release()
         return jsonify(result)
+
+
+def register_voice_routes(app, sock):
+    """Conversational voice WebSocket (docs/voice.md). Origin is checked before the upgrade."""
+
+    @sock.route("/api/sessions/<int:session_id>/voice")
+    def voice_socket(ws, session_id):
+        db = get_db()
+        voice.serve(ws, session_id, session.get("csrf_token"), db, get_voice_id(db))

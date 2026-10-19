@@ -243,6 +243,11 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 /* Camera */
 .camera-indicator { width: 10px; height: 10px; flex: 0 0 10px; margin-top: .3125rem; border-radius: 50%; border: 2px solid var(--line-strong); background: transparent; }
 .camera-indicator.on { border-color: var(--green); background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.camera-caption { display: flex; align-items: center; gap: .375rem; }
+.thinking-dots { display: inline-flex; align-items: center; gap: .1875rem; }
+.thinking-dots span { width: .3125rem; height: .3125rem; border-radius: 50%; background: var(--ink-4); animation: thinking 1.2s ease-in-out infinite; }
+.thinking-dots span:nth-child(2) { animation-delay: .16s; }
+.thinking-dots span:nth-child(3) { animation-delay: .32s; }
 .video-frame { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; margin-top: .75rem; border-radius: var(--radius-control); background: var(--surface-hover); }
 .video-frame video { width: 100%; height: 100%; object-fit: cover; background: #111; }
 .camera-empty { display: grid; justify-items: center; gap: .5rem; padding: 1rem; text-align: center; }
@@ -313,6 +318,7 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes arrive { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes step-in { from { opacity: .35; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes thinking { 0%, 80%, 100% { opacity: .3; transform: none; } 40% { opacity: 1; transform: translateY(-2px); } }
 
 /* Tablet: single workspace column, tools in a two-up grid */
 @media (max-width: 959px) {
@@ -363,4 +369,5 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .thinking-dots span { animation: none; }
 }

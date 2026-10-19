@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: UI iteration on feature/ui-thinking-dots.
-- Active: Opus implementing analysis thinking dots; existing Compose app remains available on5050.
-- Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
-- Next checkpoint: Luna review and isolated WebKit verification of pending, completion and cancellation states, then local Docker update.
+- Phase: thinking dots implemented on feature/ui-thinking-dots.
+- Active: verified thinking-dots UI running in Compose at http://127.0.0.1:5050; main remains unchanged.
+- Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
+- Next checkpoint: resume live model testing when the user turns Ollama back on.
 
 ## Milestones
+
+- 2026-10-19: Created feature/ui-thinking-dots from clean main. Opus added animated analysis dots with accessible status and static reduced-motion rendering. WebKit suite passed8 actual cases with1 live skip in27.885s. Luna found and fixed camera-off request cleanup; three affected lifecycle cases passed in9.637s. Desktop/mobile pending screenshots inspected; no physical camera or live model used.
 
 - 2026-10-19: Added Desk demo — hand gestures through the existing JSON loader, keeping scrambled eggs first. Open palm, fist, thumbs up and OK sign use real camera/model observations; final finish remains manual. Eight focused recipe/config tests passed in0.033s. Docker rebuilt with data retained and API confirmed both recipes, demo has no ingredients and four steps. Physical gesture recognition remains for user testing.
 

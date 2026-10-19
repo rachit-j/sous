@@ -85,6 +85,7 @@ A centered panel with a status mark, the `h1` (`Cooking complete.` or `Session e
 ## Motion
 
 - Step changes: `#current-step` receives `.step-changed`, a 260ms fade/rise from an already visible state. app.js adds the class only when the session or step index changes.
+- Analysis: three grey dots beside the Kitchen view's "Analyzing" caption pulse and rise slightly while an observation request is pending. They are decorative (`aria-hidden`); the existing camera status announces analysis once per request. Reduced motion shows static dots. Completion, errors and cancellation clear the indicator; the previous observation stays visible, with its panel marked busy while analysis runs.
 - Panels arrive with a 180–240ms fade/rise. Progress width, popover chevrons and hover colors transition in 150–300ms.
 - `prefers-reduced-motion: reduce` effectively disables animations, transitions and smooth scrolling.
 
@@ -101,6 +102,7 @@ Classes and attributes created by app.js that the stylesheet relies on:
 | `setConnection` | `.connection-state.ready` / `.problem` |
 | Monitoring and camera | `.monitoring-badge.active`, `#camera-indicator.on` |
 | Messages | `.camera-message.error`, `.voice-message.error`, `.toast.error` |
+| Analysis pending | `#analysis-dots[hidden]` toggles decorative dots; `#observation-panel[aria-busy=true]` marks pending observation updates |
 | Timer | `#timer-readout[data-state=idle|running|done]` |
 | Step change | `#current-step.step-changed` |
 | Completion | `#completion-panel[data-status=completed|ended]` |

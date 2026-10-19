@@ -515,11 +515,27 @@
     $("#camera-toggle").textContent = state.recipe ? "Turn on camera" : "Unavailable";
     $("#camera-toggle").disabled = !state.recipe || state.session?.status !== "active";
     $("#analyze-now").disabled = true;
+    cancelObservationRequest();
   }
 
   function cancelObservationRequest() {
+    const wasPending = state.observationInFlight;
     state.observationController?.abort();
     state.observationController = null;
+    setAnalysisPending(false);
+    if (wasPending) {
+      setCameraMessage("");
+      if (state.camera && $("#camera-caption").textContent === "Analyzing") {
+        $("#camera-caption").textContent = "Camera preview";
+      }
+    }
+  }
+
+  // Visual-only state for an in-flight observation request; camera-message carries the announcement.
+  function setAnalysisPending(pending) {
+    $("#analysis-dots").hidden = !pending;
+    if (pending) $("#observation-panel").setAttribute("aria-busy", "true");
+    else $("#observation-panel").removeAttribute("aria-busy");
   }
 
   async function captureAndAnalyze(manual) {
@@ -542,7 +558,8 @@
     state.observationController = controller;
     state.observationInFlight = true;
     $("#analyze-now").disabled = true;
-    $("#camera-caption").textContent = "Analyzing…";
+    $("#camera-caption").textContent = "Analyzing";
+    setAnalysisPending(true);
     setCameraMessage("Analyzing… This first look can take a little longer while the local model wakes up.");
     try {
       const session = await post(`/api/sessions/${state.session.id}/observations`, { image, revision }, { signal: controller.signal });
@@ -566,7 +583,9 @@
     } finally {
       state.observationInFlight = false;
       if (state.observationController === controller) state.observationController = null;
-      if (state.camera && $("#camera-caption").textContent === "Analyzing…") $("#camera-caption").textContent = "Camera preview";
+      // A cancelled request has already cleared the indicator; never clear one that belongs to a newer request.
+      if (!state.observationController) setAnalysisPending(false);
+      if (state.camera && $("#camera-caption").textContent === "Analyzing") $("#camera-caption").textContent = "Camera preview";
       updateCaptureLoop();
     }
   }

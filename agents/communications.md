@@ -138,3 +138,13 @@ Luna added four poses and usage instructions, then corrected final-step copy to 
 ### U4 thinking dots dispatch
 
 User requested a new UI branch and Opus/Luna work, starting with analysis thinking dots. Root created feature/ui-thinking-dots from clean main. Opus sole writer for template/CSS/JS and focused browser tests, using Frontend UI Engineering guidance: three subtle decorative dots during actual inference, accessible status text, reduced-motion support and terminal/cancellation cleanup. No backend/model changes. Luna reviews stable diff after implementation; Codex owns docs/tests/commit/local Compose rebuild.
+
+User turned Ollama off during U4. UI checks use synthetic test responses only; defer live inference until the final test session.
+
+### U4 implementation and review
+
+Opus added CSS thinking dots, decorative markup, an analysis visual-state helper and a synthetic pending-request browser test. Initial isolated WebKit suite passed8 executed cases plus1 optional live skip in27.885s. Root inspected desktop/mobile pending captures. Luna review found camera-off hid dots without aborting the pending client request. Luna applied a bounded follow-up in JS/tests: camera-off aborts the request and clears obsolete pending text; pause restores the camera preview caption. Root verifies affected lifecycle cases before commit. No live Ollama requests or personal browser access.
+
+### U4 verification
+
+Root observed3 affected WebKit cases pass in9.637s after Luna's follow-up, including camera-off abort/cleared pending text, reduced motion, pause/end cancellation, delayed permission lifecycle and synthetic response/timer race. JS syntax and diff checks passed. Main remains unchanged; verified implementation stays on feature/ui-thinking-dots. Local Docker update preserves named storage; live inference deferred until user restarts Ollama.

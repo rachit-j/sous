@@ -424,6 +424,151 @@ class SousBrowserTests(unittest.TestCase):
         self.assertEqual(event_messages.count("Timer finished."), 1)
         self.assert_clean_browser()
 
+    def test_pending_observation_shows_thinking_dots_until_terminal_state(self):
+        page = self.page
+        if not page.evaluate("typeof HTMLCanvasElement.prototype.captureStream === 'function'"):
+            self.skipTest("This WebKit runtime does not support synthetic canvas captureStream.")
+
+        sentinel = object()
+        previous = sys.modules.get("providers", sentinel)
+        fake = types.ModuleType("providers")
+        fake.analyze = lambda provider, model, jpeg, context: {
+            "activity": "Synthetic pending frame",
+            "evidence": "A generated color field is visible in the test camera.",
+            "confidence": 0.55,
+            "step_complete": False,
+            "alert": None,
+        }
+        sys.modules["providers"] = fake
+        self.addCleanup(self._restore_provider_module, previous, sentinel)
+        page.evaluate("""
+            Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
+              getUserMedia: async () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 320; canvas.height = 180;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#9aa3ad'; context.fillRect(0, 0, 320, 180);
+                return canvas.captureStream(2);
+              }
+            }});
+        """)
+        self.start_session()
+        page.locator("#camera-toggle").click()
+        page.locator("#camera-video").wait_for(state="visible")
+        page.wait_for_function("document.querySelector('#camera-video').readyState >= 2", timeout=5000)
+        # Camera warmup is not model analysis.
+        self.assertTrue(page.locator("#analysis-dots").is_hidden())
+        page.locator("#monitoring-toggle").click()
+        page.get_by_text("Guidance on").wait_for()
+
+        # Hold each observation request until the test releases it, fails it, or the app aborts it.
+        page.evaluate("""
+          (() => {
+            const originalFetch = window.fetch.bind(window);
+            window.__holds = [];
+            window.fetch = (input, init = {}) => {
+              const url = typeof input === 'string' ? input : input.url;
+              if (!url.includes('/observations')) return originalFetch(input, init);
+              return new Promise((resolve, reject) => {
+                const signal = init.signal;
+                const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+                signal?.addEventListener('abort', onAbort, { once: true });
+                window.__holds.push({
+                  signal,
+                  release: () => { signal?.removeEventListener('abort', onAbort); originalFetch(input, init).then(resolve, reject); },
+                  fail: () => resolve(new Response(JSON.stringify({ error: 'Synthetic provider failure.' }), {
+                    status: 502, headers: { 'Content-Type': 'application/json' },
+                  })),
+                });
+              });
+            };
+          })();
+        """)
+
+        def start_pending(count):
+            page.wait_for_function("!document.querySelector('#analyze-now').disabled", timeout=5000)
+            page.locator("#analyze-now").click()
+            page.wait_for_function(f"window.__holds.length === {count}")
+            self.assertTrue(page.locator("#analysis-dots").is_visible())
+            self.assertEqual(page.locator("#analysis-dots").get_attribute("aria-hidden"), "true")
+            self.assertEqual(page.locator("#camera-caption").inner_text(), "Analyzing")
+            self.assertEqual(page.locator("#observation-panel").get_attribute("aria-busy"), "true")
+            self.assertIn("Analyzing", page.locator("#camera-message").inner_text())
+            self.assertTrue(page.locator("#analyze-now").is_disabled())
+
+        def assert_idle():
+            self.assertTrue(page.locator("#analysis-dots").is_hidden())
+            self.assertIsNone(page.locator("#observation-panel").get_attribute("aria-busy"))
+            self.assertNotEqual(page.locator("#camera-caption").inner_text(), "Analyzing")
+
+        # Pending, then success.
+        start_pending(1)
+        self.assertEqual(
+            page.locator("#analysis-dots span").first.evaluate("dot => getComputedStyle(dot).animationName"),
+            "thinking",
+        )
+        page.locator(".camera-panel").scroll_into_view_if_needed()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/analysis-desktop.png")
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.locator(".camera-panel").scroll_into_view_if_needed()
+        page.screenshot(path="/private/tmp/sous-webkit-artifacts/analysis-mobile.png")
+        self.assert_no_horizontal_overflow("Pending analysis at 390px")
+        page.set_viewport_size({"width": 1280, "height": 900})
+        self.assertTrue(page.locator("#analysis-dots").is_visible())
+        page.evaluate("window.__holds[0].release()")
+        page.wait_for_function(
+            "document.querySelector('#observation-content .observation-text')?.textContent === 'Synthetic pending frame'",
+            timeout=10000,
+        )
+        page.wait_for_function("document.querySelector('#camera-message').textContent === 'Look complete.'", timeout=10000)
+        assert_idle()
+        self.assertEqual(page.locator("#camera-caption").inner_text(), "Camera preview")
+
+        # Pending keeps the latest observation, then provider failure.
+        observation = page.locator("#observation-content .observation-text")
+        start_pending(2)
+        self.assertEqual(observation.inner_text(), "Synthetic pending frame")
+        page.evaluate("window.__holds[1].fail()")
+        page.wait_for_function("document.querySelector('#camera-message').textContent.includes('Synthetic provider failure.')")
+        assert_idle()
+        self.assertEqual(observation.inner_text(), "Synthetic pending frame")
+
+        # Pending, then cancelled by turning off the camera.
+        start_pending(3)
+        page.locator("#camera-toggle").click()
+        page.wait_for_function("window.__holds[2].signal.aborted")
+        page.wait_for_function("document.querySelector('#camera-caption').textContent === 'Camera is off'")
+        assert_idle()
+        self.assertEqual(page.locator("#camera-message").inner_text(), "")
+        self.assertTrue(page.locator("#analyze-now").is_disabled())
+        page.locator("#camera-toggle").click()
+        page.locator("#camera-video").wait_for(state="visible")
+        page.wait_for_function("document.querySelector('#camera-video').readyState >= 2", timeout=5000)
+
+        # Pending, then cancelled by pausing guidance.
+        start_pending(4)
+        page.locator("#monitoring-toggle").click()
+        page.get_by_text("Guidance paused").wait_for()
+        page.wait_for_function("document.querySelector('#camera-caption').textContent === 'Camera preview'")
+        assert_idle()
+        self.assertEqual(page.locator("#camera-message").inner_text(), "")
+        self.assertEqual(observation.inner_text(), "Synthetic pending frame")
+
+        # Reduced motion keeps static dots; ending the session clears them.
+        page.emulate_media(reduced_motion="reduce")
+        page.locator("#monitoring-toggle").click()
+        page.get_by_text("Guidance on").wait_for()
+        start_pending(5)
+        self.assertEqual(
+            page.locator("#analysis-dots span").first.evaluate("dot => getComputedStyle(dot).animationName"),
+            "none",
+        )
+        page.locator("#end-session").click()
+        page.locator("#completion-panel").wait_for(state="visible")
+        self.assertTrue(page.locator("#analysis-dots").is_hidden())
+        self.assertIsNone(page.locator("#observation-panel").get_attribute("aria-busy"))
+        self.assert_clean_browser()
+
     def test_optional_live_local_ollama_observation(self):
         if os.environ.get("SOUS_LIVE_OLLAMA") != "1":
             self.skipTest("Set SOUS_LIVE_OLLAMA=1 to call the configured local Ollama model.")

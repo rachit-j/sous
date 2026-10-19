@@ -2,7 +2,15 @@
 
 A local Flask cooking companion driven by structured recipes. Scrambled eggs is the first bundled recipe. A laptop webcam supplies periodic snapshots; Sous tracks the selected recipe's steps, speaks useful updates, and lets the cook correct its understanding.
 
-## Run locally
+## Run with Docker
+
+```sh
+docker compose up --build
+```
+
+Open http://127.0.0.1:5050. No host Python or Node setup is needed. Sessions persist in a named volume; the default model is your existing host Ollama `qwen3-vl:8b`. Cloud provider settings and other model IDs are optional configuration. See [Docker setup](docs/docker.md) for environment variables, Linux host Ollama networking, and stop/rebuild commands.
+
+## Local Flask development
 
 Use Python 3.12 or newer. With [uv](https://docs.astral.sh/uv/):
 

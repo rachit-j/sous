@@ -14,12 +14,12 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 | ID | Owner | Assignment | State |
 |---|---|---|---|
 | B1 | Claude Code | Flask/SQLite recipe loop, actions, tests and dependency configuration | Completed; 16 tests verified by Codex |
-| U1 | Luna | Jinja/JS/CSS interface using agreed API | Completed; browser checks passed, final polish verification running |
-| P1 | Claude Code | Four model adapters and monitoring integration | Completed; 32 tests passed, local live smoke running |
+| U1/U2 | Luna | Jinja/JS/CSS interface using agreed API | Completed; six core WebKit scenarios + targeted final-copy checks passed |
+| P1 | Claude Code | Four model adapters and monitoring integration | Completed; unit, local live and container live checks passed |
 | G1 | Claude Code | Generic JSON recipes and persistent session recipe snapshot | Completed by Opus; 44 tests passed |
-| R1 | Luna (fresh review context) | Independent completed-flow review | UI review complete; one P2 fix queued; provider review after P1 |
-| V1 | Codex | Inspect, test, run browser, record evidence | Ongoing |
-| D1 | Claude Code | Dockerfile/Compose packaging and container configuration | After application verification |
+| R1 | Luna (fresh review context) | Independent completed-flow review | Completed; actionable findings fixed and re-reviewed |
+| V1 | Codex | Inspect, test, run browser, record evidence | Completed; normal app HTTP200, clean new session state |
+| D1 | Claude Code | Dockerfile/Compose packaging and container configuration | Completed; build/non-root/restart/live-inference verified |
 
 ## Handoffs
 
@@ -102,3 +102,15 @@ Sonnet completed minimal audit fix and removed loader's test-only food-specific 
 ### U2 verification / Docker handoff
 
 Final isolated WebKit run:6 passed+optional live skipped in25.450s. Test harness fixed missing new-session transition, CSS uppercase text assertion, async waits, and Mac WebKit Option+Tab navigation without altering system settings. Generic3-step recipe restores from snapshot after omitted current catalog entry; pending sessionA permission stream stops when sessionB starts. Neutral camera caption and accurate selected-provider still-image copy added. Codex commits UI; Luna stops writing. Sonnet receives bounded Docker packaging task (Dockerfile/compose/.dockerignore/requirements/.env.example/docs/docker.md/tests/test_container.py); app code stable and reviewed.
+
+### D1 initial verification
+
+Docker build and configuration validation succeeded. Test stack sous-verify uses service sous, port5051 and dedicated named volume; uid10001 verified. In-image unit run passed48 cases (46 actual tests,2 opt-in container cases skipped, browser class skipped). Sonnet assigned tiny follow-up: enforce /tmp WebKit and fixed disposable-stack identity in container tests; allow full cold inference to finish during graceful shutdown. Luna's final neutral completion copy is being checked in affected WebKit cases; no further UI writes.
+
+### D1 final verification / delivery
+
+Sonnet enforced dedicated test-project/port identity before mutation, /tmp-only WebKit runtime/profile, and graceful stop210s/Compose220s. Root rebuilt image, ran two container integration tests successfully in29.931s, including real host qwen3-vl and persisted secret/session/recipe/timer across restart. Final fresh Luna review found no packaging defect. Final neutral completion copy passed two affected WebKit cases. Codex stops only sous-verify fixture stack without deleting volume and starts normal app on5050 with separate named storage. No cloud credentials read, no personal browser, no physical camera/mic accessed.
+
+### Delivery
+
+Normal app is running as sous-sous-1 with fresh sous_sous-instance volume, published only127.0.0.1:5050. HTTP200 root page and session:null verified. Docker test project stopped, its volume retained. All requested implementation/review tasks complete; runtime/hardware/cloud limitations documented in docs/validation.md. Codex commits final package/docs locally, no push/deploy.

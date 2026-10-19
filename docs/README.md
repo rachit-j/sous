@@ -10,5 +10,6 @@ Stable Markdown documents and relative links are the source of truth for future 
 - [Architecture and cooking state](architecture.md): boundaries, state transitions and privacy.
 - [Structured recipes](recipes.md): adding JSON recipes and preserving session definitions.
 - [Provider setup](providers.md): Ollama, OpenAI, Anthropic and Bedrock configuration.
+- [Docker setup](docker.md): Compose startup, persisted data, host model routing and container tests.
 - [Validation evidence](validation.md): observed checks and known limitations.
 - [Quick start](../README.md): local setup, running and testing.

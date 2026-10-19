@@ -2,7 +2,7 @@
 
 ## Current state
 
-Implementation in progress. B1 backend tests verified; UI and provider adapters pending.
+MVP application and Docker packaging verified. Recipes are generic structured JSON, with scrambled eggs bundled first. Physical camera/audio and live cloud providers remain manual/configuration-dependent checks.
 
 ## Observed checks
 
@@ -18,6 +18,13 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 - 2026-10-19: G1 unittest discovery —44 tests passed in0.509s, optional browser class skipped. Added tests for generic recipe files/order/validation, 1- and2-step recipes, observed/manual transitions against their cues, snapshots after definition changes/removal, and additive migration of prior session/timer/event data.
 - 2026-10-19: Audit follow-up unittest discovery —46 tests passed in0.425s, optional browser class skipped. Late success/failure rows retain original request step/revision, sanitized stale failures return409, and corrected/paused session state remains unchanged.
 - 2026-10-19: Final U2 WebKit suite —6 passed+1 optional live test skipped in25.450s. Includes custom3-step recipe, snapshot recovery after catalog removal, stale permission result across session replacement, synthetic observation/timer race, manual cooking/recovery, denied camera fallback and keyboard skip-link behavior. Node syntax and diff whitespace checks passed.
+- 2026-10-19: `docker compose config --quiet` and Compose image build succeeded. Dedicated test stack published only127.0.0.1:5051; runtime `id` returned uid10001(sous), gid999(sous).
+- 2026-10-19: Backend discovery inside built Linux image with tests mounted read-only passed48 cases in0.600s (46 actual unit/provider/loader tests,2 optional container tests skipped; optional browser class skipped). No host Python/Node needed by runtime image.
+- 2026-10-19: Final neutral completion wording verified in two affected WebKit cases — passed in9.893s.
+- 2026-10-19: Final Docker rebuild and Compose validation passed. Dedicated stack integration command with SOUS_CONTAINER_TESTS=1 and SOUS_LIVE_OLLAMA=1 —2 tests passed in29.931s. Actual generated JPEG went through container Flask -> host Ollama -> normalized observation. Actual container restart retained session, recipe snapshot, timer deadline and signed-cookie/CSRF acceptance, and paused monitoring.
+- Independent Luna reviews verified camera-request lifecycle, snapshot use, audit provenance and Docker packaging. All actionable findings resolved; no open review defects.
+- Final normal Compose stack started with separate fresh volume on127.0.0.1:5050. Root page returned HTTP200; active-session API returnednull; `docker compose ps` showed sous-sous-1 running with loopback-only publication. Test stack was stopped without deleting its data volume.
+- Container runtime was verified on this macOS Docker Desktop host using a Linux arm64 image. Windows and native Linux hosts were not directly exercised; Linux host-Ollama binding requirements are documented in [Docker setup](docker.md).
 
 ## Test environment
 
@@ -25,11 +32,10 @@ Implementation in progress. B1 backend tests verified; UI and provider adapters 
 - Playwright 1.64.0 with WebKit 27.2 installed under `/private/tmp/sous-webkit`.
 - Personal Chrome and other personal browser sessions are prohibited. All browser tests will use a fresh isolated WebKit context/profile.
 
-## Planned checks
+## Remaining manual checks
 
-- Flask unittest suite: state/persistence, CSRF/origin/input validation, timers, provider normalization, transition thresholds, and late results.
-- Browser runtime: setup, manual cooking loop, correction, timer expiry, mode controls, reload/recovery, permissions/fallback, and completion.
-- JavaScript syntax check using Node; visual inspection in a real browser.
-- Live provider smoke tests only when credentials and a configured image-capable model are available; explicitly mark unavailable integrations unverified.
+- Physical webcam framing and actual microphone recognition/audio output on the user's hardware; all automated camera frames were synthetic and no personal browser was accessed.
+- Real cooking accuracy, confidence calibration and intervention usefulness across recipes have not been evaluated by these integration tests.
+- OpenAI, Anthropic and Bedrock are covered by mocked request/response tests; live calls need the user's configured model access/credentials.
 
 See [status](../STATUS.md) for progress and [API contract](api.md) for expected behavior.

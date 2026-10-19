@@ -1,0 +1,31 @@
+services:
+  sous:
+    build: .
+    image: sous:local
+    restart: unless-stopped
+    # Local-only MVP: reachable from this machine, not the network.
+    ports:
+      - "127.0.0.1:${SOUS_PORT:-5050}:5000"
+    volumes:
+      - sous-instance:/app/instance
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Lets in-flight analysis finish (gunicorn graceful timeout is 210 s; local read timeout is 180 s).
+    stop_grace_period: 220s
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-vl:8b}
+      # Names without values are passed through only when set in your shell or .env.
+      # An unset variable stays unset, so that provider simply shows as not configured.
+      OPENAI_API_KEY:
+      OPENAI_MODEL:
+      ANTHROPIC_API_KEY:
+      ANTHROPIC_MODEL:
+      AWS_REGION:
+      BEDROCK_MODEL_ID:
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      AWS_SESSION_TOKEN:
+
+volumes:
+  sous-instance:

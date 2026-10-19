@@ -29,6 +29,8 @@ Each session saves a recipe snapshot. Config edits apply to new sessions; ongoin
 
 Only one model request per session runs at once. Network calls happen outside SQLite transactions; state is checked again before applying the result. This MVP uses one server process and one active browser tab. A distributed worker/multi-user system would require a different concurrency mechanism.
 
+The Docker image uses one Gunicorn worker with four threads, so manual controls can be served during model calls while the per-process monitoring lock remains valid. The app runs as a non-root user and keeps SQLite and its signing secret in a named volume. See [Docker setup](docker.md).
+
 Mode changes and pauses reset completion evidence. Reloading or restarting pauses monitoring until the user resumes. Final completion always requires the cook's confirmation. Timers have absolute deadlines and are independent of recipe advancement; ending a session cancels its timer.
 
 ## Privacy and failure behavior

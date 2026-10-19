@@ -1,0 +1,32 @@
+# Version control, tools and private working files
+.git
+.gitignore
+.claude
+.agents
+.codex
+.aws
+.venv
+venv
+agents
+docs
+tests
+*.md
+
+# Secrets and local state
+.env
+.env.*
+instance
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+
+# Media, caches and dev artifacts
+*.jpg
+*.jpeg
+*.wav
+*.webm
+*.png
+__pycache__
+*.pyc
+requirements-dev.txt

@@ -63,10 +63,15 @@ class InvalidOutput(ValueError):
     """The model answered but the answer is not a usable observation."""
 
 
-def analyze(provider_id, model, jpeg, context):
+def analyze(provider_id, model, jpeg, context, bedrock=None):
+    """bedrock: optional settings.BedrockConnection; when given, Bedrock uses only those credentials."""
     adapter = ADAPTERS.get(provider_id)
     if adapter is None:
         raise ProviderError("Unknown provider.")
+    if bedrock is not None:
+        if provider_id != "bedrock":
+            raise ProviderError("Unknown provider.")
+        return parse_observation(bedrock_converse(model, jpeg, build_prompt(context), bedrock))
     return parse_observation(adapter(model, jpeg, build_prompt(context)))
 
 
@@ -246,18 +251,43 @@ def anthropic_messages(model, jpeg, prompt):
                    if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str))
 
 
-def bedrock_converse(model, jpeg, prompt):
-    region = require_env("AWS_REGION", "AWS Bedrock")
+def bedrock_client(service, connection, read_timeout):
+    """Bedrock client. connection (managed settings) supplies explicit credentials and region;
+    without it the legacy AWS_REGION/AWS_PROFILE/default credential chain is used. Credentials
+    are passed to the Session only, never written to os.environ."""
     import boto3
     from botocore.config import Config
+    if connection is None:
+        region = require_env("AWS_REGION", "AWS Bedrock")
+        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE") or None, region_name=region)
+    else:
+        session = boto3.Session(aws_access_key_id=connection.access_key_id,
+                                aws_secret_access_key=connection.secret_access_key,
+                                aws_session_token=connection.session_token or None,
+                                region_name=connection.region)
+    return session.client(service, config=Config(connect_timeout=CONNECT_TIMEOUT, read_timeout=read_timeout,
+                                                 retries={"max_attempts": 2, "mode": "standard"}))
+
+
+def aws_error(exc):
+    """Map a botocore exception to a static ProviderError; upstream text is never kept."""
     from botocore.exceptions import (BotoCoreError, ClientError, ConnectTimeoutError,
                                      NoCredentialsError, ProfileNotFound, ReadTimeoutError)
+    if isinstance(exc, (NoCredentialsError, ProfileNotFound)):
+        return ProviderError("AWS credentials are not available to the server.")
+    if isinstance(exc, (ConnectTimeoutError, ReadTimeoutError)):
+        return ProviderError("Provider request timed out.")
+    if isinstance(exc, ClientError):
+        code = (exc.response.get("Error") or {}).get("Code", "")
+        return ProviderError(BEDROCK_ERRORS.get(code, "AWS Bedrock request failed."))
+    if isinstance(exc, BotoCoreError):
+        return ProviderError("Could not reach the provider.")
+    return None
+
+
+def bedrock_converse(model, jpeg, prompt, connection=None):
     try:
-        client = boto3.Session(profile_name=os.environ.get("AWS_PROFILE") or None, region_name=region).client(
-            "bedrock-runtime",
-            config=Config(connect_timeout=CONNECT_TIMEOUT, read_timeout=CLOUD_READ_TIMEOUT,
-                          retries={"max_attempts": 2, "mode": "standard"}),
-        )
+        client = bedrock_client("bedrock-runtime", connection, CLOUD_READ_TIMEOUT)
         data = client.converse(
             modelId=model,
             system=[{"text": SYSTEM_PROMPT}],
@@ -267,15 +297,11 @@ def bedrock_converse(model, jpeg, prompt):
             ]}],
             inferenceConfig={"maxTokens": MAX_OUTPUT_TOKENS},
         )
-    except (NoCredentialsError, ProfileNotFound):
-        raise ProviderError("AWS credentials are not available to the server.") from None
-    except (ConnectTimeoutError, ReadTimeoutError):
-        raise ProviderError("Provider request timed out.") from None
-    except ClientError as exc:
-        code = exc.response.get("Error", {}).get("Code", "")
-        raise ProviderError(BEDROCK_ERRORS.get(code, "AWS Bedrock request failed.")) from None
-    except BotoCoreError:
-        raise ProviderError("Could not reach the provider.") from None
+    except Exception as exc:
+        error = aws_error(exc)
+        if error is None:
+            raise
+        raise error from None
     stop = data.get("stopReason")
     if stop in ("guardrail_intervened", "content_filtered"):
         raise ProviderError("Model declined to analyze the frame.")
@@ -288,12 +314,121 @@ def bedrock_converse(model, jpeg, prompt):
 BEDROCK_ERRORS = {
     "AccessDeniedException": "Provider rejected the credentials or permissions.",
     "UnrecognizedClientException": "Provider rejected the credentials or permissions.",
+    "InvalidSignatureException": "Provider rejected the credentials or permissions.",
+    "ExpiredTokenException": "AWS session token has expired.",
     "ResourceNotFoundException": "Model or endpoint not found.",
     "ValidationException": "AWS Bedrock rejected the request; check the model ID supports images.",
     "ThrottlingException": "Provider rate limit or quota reached.",
     "ModelTimeoutException": "Provider request timed out.",
     "ModelNotReadyException": "Model is not ready; try again shortly.",
 }
+
+
+# --- Bedrock model discovery (control plane metadata only; no images, no inference) ---
+
+DISCOVERY_READ_TIMEOUT = 15
+MAX_PROFILE_PAGES = 20
+MAX_MODEL_ID = 200
+FOUNDATION_ARN = re.compile(r"arn:aws[a-z-]*:bedrock:[a-z0-9-]*::foundation-model/(.+)")
+PARTIAL_WARNING = ("Some Bedrock models or inference profiles could not be listed. "
+                   "You can still enter a model or inference profile ID manually.")
+
+
+MODEL_ID = re.compile(r"[A-Za-z0-9._:/\-]{1,200}")  # same rule settings.validate_model_id applies
+
+
+def _text(value, limit=MAX_MODEL_ID):
+    return value.strip()[:limit] if isinstance(value, str) else ""
+
+
+def _model_id(value):
+    return value.strip() if isinstance(value, str) and MODEL_ID.fullmatch(value.strip()) else ""
+
+
+def _list(value):
+    return value if isinstance(value, list) else []
+
+
+def list_bedrock_models(connection):
+    """Image-input, text-output, active foundation models plus active inference profiles that
+    reference them. Returns {models: [{id, name, kind}], warning?}. A listed model is not a
+    guarantee of invoke access or Converse support."""
+    try:
+        client = bedrock_client("bedrock", connection, DISCOVERY_READ_TIMEOUT)
+        summaries = client.list_foundation_models(byOutputModality="TEXT").get("modelSummaries")
+    except Exception as exc:
+        error = aws_error(exc)
+        if error is None:
+            raise
+        raise error from None
+
+    models, image_ids = [], set()
+    for item in summaries if isinstance(summaries, list) else []:
+        if not isinstance(item, dict):
+            continue
+        model_id = _model_id(item.get("modelId"))
+        lifecycle = item.get("modelLifecycle")
+        if (not model_id or "IMAGE" not in _list(item.get("inputModalities"))
+                or "TEXT" not in _list(item.get("outputModalities"))
+                or not isinstance(lifecycle, dict) or lifecycle.get("status") != "ACTIVE"):
+            continue
+        image_ids.add(model_id)
+        # Models offered only through inference profiles can't be invoked by bare model ID.
+        types = item.get("inferenceTypesSupported")
+        if types is None or "ON_DEMAND" in _list(types):
+            models.append({"id": model_id, "name": _text(item.get("modelName")) or model_id,
+                           "kind": "foundation_model"})
+
+    warning = None
+    token, seen = None, set()
+    try:
+        for _ in range(MAX_PROFILE_PAGES):
+            page = client.list_inference_profiles(maxResults=100, **({"nextToken": token} if token else {}))
+            for item in _list(page.get("inferenceProfileSummaries")):
+                profile = _profile_candidate(item, image_ids)
+                if profile:
+                    models.append(profile)
+            token = page.get("nextToken")
+            if not token or token in seen:
+                break
+            seen.add(token)
+        else:
+            warning = PARTIAL_WARNING
+    except Exception as exc:
+        if aws_error(exc) is None:
+            raise
+        warning = PARTIAL_WARNING  # e.g. no bedrock:ListInferenceProfiles permission
+
+    unique, ids = [], set()
+    for model in sorted(models, key=lambda m: (m["kind"] != "foundation_model", m["name"].lower())):
+        if model["id"] not in ids:
+            ids.add(model["id"])
+            unique.append(model)
+    result = {"models": unique}
+    if warning:
+        result["warning"] = warning
+    return result
+
+
+def _profile_candidate(item, image_ids):
+    if not isinstance(item, dict) or item.get("status") != "ACTIVE":
+        return None
+    referenced = set()
+    for ref in _list(item.get("models")):
+        arn = ref.get("modelArn") if isinstance(ref, dict) else None
+        match = FOUNDATION_ARN.fullmatch(arn) if isinstance(arn, str) else None
+        if match:
+            referenced.add(match.group(1))
+    if not referenced & image_ids:
+        return None
+    # System profiles are addressed by ID; application profiles by ARN.
+    key = "inferenceProfileArn" if item.get("type") == "APPLICATION" else "inferenceProfileId"
+    profile_id = _model_id(item.get(key))
+    if not profile_id:
+        return None
+    return {"id": profile_id, "name": _text(item.get("inferenceProfileName")) or profile_id,
+            "kind": "inference_profile"}
+
 
 ADAPTERS = {"ollama": ollama_chat, "openai": openai_responses, "anthropic": anthropic_messages,
             "bedrock": bedrock_converse}

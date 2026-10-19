@@ -1,6 +1,6 @@
 # Provider setup
 
-Copy `.env.example` to `.env` and configure only the providers you want. Restart Flask after configuration changes. All credentials and endpoint URLs remain on the server; the browser chooses a provider and model ID. Sous never downloads models or silently switches providers.
+Use **Settings** for Bedrock credentials, region and model selection, with passphrase-encrypted credential storage. Environment configuration remains supported for existing provider setups. All saved secrets stay on the server after submission; the settings API never returns them. Sous never downloads models or silently switches providers. See [secure settings](settings.md).
 
 ## Ollama
 
@@ -20,7 +20,11 @@ Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` to an available Claude model accep
 
 ## AWS Bedrock
 
-Set `AWS_REGION` and `BEDROCK_MODEL_ID` to an image-capable model or inference-profile ID with Converse support. Use the AWS standard credential chain, optionally with `AWS_PROFILE`. Your credentials must permit invoking that model in the chosen region. Do not put AWS credentials in browser inputs or project documentation.
+Open **Settings**, create an unlock passphrase, and save your AWS access key ID, secret access key, optional session token and region. Load model candidates, select an image-capable model or enter a model/inference-profile ID, and save it as your default. No `.env` changes are required. Saved credential inputs remain blank; blank fields retain saved values, with explicit controls to remove a session token or connection. Unlock again after the server restarts. A forgotten passphrase cannot be recovered.
+
+Discovery uses AWS metadata APIs and does not invoke a model or send camera images. Listing permission may be absent even if invocation works, so a custom ID remains supported. Listings do not guarantee access or Converse compatibility. Your credentials must permit invoking the selected model/profile in the chosen region. For least privilege, grant only the model invocation and discovery operations you need.
+
+Legacy setups can still use `AWS_REGION`, `BEDROCK_MODEL_ID` and the AWS credential chain, optionally `AWS_PROFILE`. Managed saved credentials take precedence; a locked managed connection must be unlocked rather than silently switching identity. Never paste keys into project documentation, commands, or issue reports.
 
 The adapter uses Boto3's Bedrock Runtime Converse API. Image/model support varies; verify your selected model/region in AWS. [Converse API](https://docs.aws.amazon.com/boto3/latest/reference/services/bedrock-runtime/client/converse.html), [model compatibility](https://docs.aws.amazon.com/bedrock/latest/userguide/models-api-compatibility.html).
 
@@ -30,3 +34,4 @@ The adapter uses Boto3's Bedrock Runtime Converse API. Image/model support varie
 - Use Analyze now after framing the pan/workspace. Failed requests leave the current step unchanged.
 - Check the selected provider/model and server configuration before retrying. Errors shown by Sous omit upstream response bodies to avoid leaking credentials.
 - Capture is periodic rather than continuous video. Local models may take longer than the sample interval; requests never intentionally overlap.
+- Settings controls the interval from1–15 seconds (default10). Shorter intervals can increase cloud usage; slow requests still finish before another analysis begins.

@@ -58,6 +58,12 @@ Add an explicitly simulated recipe using four static hand poses, with no ingredi
 
 Work on feature/ui-thinking-dots, leaving main unchanged. Opus implements a small three-dot analysis indicator in the existing grey visual system; Luna reviews. Display meaningful accessible text while the actual observation request is pending, hide decorative dots from assistive technology, respect reduced motion, and clear the indicator on completion, failure or cancellation. Preserve camera privacy and existing state guards. Codex checks delayed-request and cancellation behavior in isolated WebKit, inspects desktop/mobile captures, commits and rebuilds local Compose.
 
+## In-app Bedrock settings
+
+Implement [secure provider settings](docs/settings.md) on this branch. User approved passphrase unlock after server restart. Opus implements the encrypted vault, settings API and explicit Bedrock credential/model discovery integration. Luna implements Settings navigation/forms and simpler cooking setup, then independent review. Codex maintains contracts, verifies mocked AWS and isolated WebKit checks, checks container persistence in the disposable project, commits milestones and rebuilds local Compose. No real AWS credentials are read by agents; live model validation requires user setup.
+
+User also requested snapshot frequency settings:10-second default,15-second maximum. Accept integer seconds1–15, persist this nonsecret preference, use it in the actual camera scheduler and retain single-request-at-a-time behavior. Settings explains shorter intervals can increase cloud usage.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

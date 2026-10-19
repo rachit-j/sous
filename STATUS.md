@@ -2,10 +2,10 @@
 
 ## Current
 
-- Phase: thinking dots implemented on feature/ui-thinking-dots.
-- Active: verified thinking-dots UI running in Compose at http://127.0.0.1:5050; main remains unchanged.
+- Phase: secure Bedrock Settings on feature/ui-thinking-dots.
+- Active: specifying encrypted credential vault and settings/model-selection flow, then Opus backend and Luna UI implementation.
 - Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
-- Next checkpoint: resume live model testing when the user turns Ollama back on.
+- Next checkpoint: backend/vault tests and UI integration; Ollama stays off. User approved unlock passphrase after restart.
 
 ## Milestones
 

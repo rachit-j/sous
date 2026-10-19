@@ -148,3 +148,7 @@ Opus added CSS thinking dots, decorative markup, an analysis visual-state helper
 ### U4 verification
 
 Root observed3 affected WebKit cases pass in9.637s after Luna's follow-up, including camera-off abort/cleared pending text, reduced motion, pause/end cancellation, delayed permission lifecycle and synthetic response/timer race. JS syntax and diff checks passed. Main remains unchanged; verified implementation stays on feature/ui-thinking-dots. Local Docker update preserves named storage; live inference deferred until user restarts Ollama.
+
+### S1 secure Bedrock backend dispatch
+
+User requested in-app Bedrock credentials/settings, model selection, Settings page and UI restructuring on current branch; explicitly accepted passphrase unlock after restart. Also requested snapshot interval setting default10, max15 (implemented range1–15 integer seconds). Root wrote docs/settings.md threat model/API/UI contract. Luna completed read-only UI integration planning, recommending internal views and preserving current IDs. Opus sole writer for vault/backend/provider/API tests/dependency/Docker module copy; no UI writes until handoff. Managed secrets encrypted at rest with in-memory unlock key, no environment mutation or raw credentials in API/logs. Root verifies before Luna frontend work. Ollama stays off; existing untracked brag-output untouched.

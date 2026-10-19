@@ -50,6 +50,10 @@ User requested Claude Opus to redesign the interface using UI skills. Replace th
 
 Opus owns bounded template/CSS work and necessary UI wiring/test changes, guided by Impeccable and Frontend UI Engineering. Use written guidance without custom executables, respecting execution restrictions. Codex coordinates; Luna independently reviews. Verify setup and cooking at desktop and390px in isolated WebKit under /tmp, run relevant regression checks, record the visual system in docs/design.md, commit the verified milestone and rebuild the local Compose app with persistent storage retained.
 
+## Desk demo recipe
+
+Add an explicitly simulated recipe using four static hand poses, with no ingredients or cooking materials. Load it through the existing JSON recipe mechanism after the default cooking recipe. Instructions explain holding poses for camera samples and using manual controls; final completion remains manual. No gesture-specific engine logic, fake model results or recognition guarantee. Luna owns recipe data and usage documentation; Codex checks loading/API exposure, rebuilds Compose with persistent data retained and commits.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

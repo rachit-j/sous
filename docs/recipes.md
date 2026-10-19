@@ -31,6 +31,8 @@ Use a unique nonempty ID, nonempty name/description, an ingredients list, and on
 
 Restart local Flask after editing recipes. For Docker, rebuild with `docker compose up --build` so the JSON files are included in the image. This MVP uses file-based definitions, with no recipe editor or AI recipe generation.
 
+The bundled **Desk demo — hand gestures** recipe uses four static hand poses and no food or materials. It exercises the real camera and configured model pipeline; it does not use canned responses, and gesture recognition is not guaranteed. Keep each pose steady and facing the camera; because snapshots are taken every 10 seconds, automatic advancement may take 20–30 seconds. You can select **Analyze now** twice or use **Next** manually. Finish the final step manually.
+
 ## Stable sessions
 
 A session retains the recipe definition it started with. Editing or removing a recipe file does not rewrite an active or historical session's step instructions. Reloading still pauses camera monitoring until the cook resumes.

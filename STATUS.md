@@ -3,11 +3,13 @@
 ## Current
 
 - Phase: UI redesign delivered.
-- Active: redesigned Compose app running at http://127.0.0.1:5050; grey surfaces, charcoal controls and restrained color accents.
+- Active: redesigned Compose app at http://127.0.0.1:5050 now includes a no-materials desk demo recipe with four hand poses.
 - Blockers: none currently. Docker engine running; existing Ollama qwen3-vl:8b vision model available for live local testing after adapter implementation.
 - Next checkpoint: user trial of the redesigned workspace; physical camera/audio and live cloud checks remain configuration-dependent.
 
 ## Milestones
+
+- 2026-10-19: Added Desk demo — hand gestures through the existing JSON loader, keeping scrambled eggs first. Open palm, fist, thumbs up and OK sign use real camera/model observations; final finish remains manual. Eight focused recipe/config tests passed in0.033s. Docker rebuilt with data retained and API confirmed both recipes, demo has no ingredients and four steps. Physical gesture recognition remains for user testing.
 
 - 2026-10-19: Opus redesign verified with 7 passing isolated WebKit cases (optional live inference skipped), backend discovery green, JavaScript syntax and diff checks clean. Luna static review found no actionable regressions. Setup/cooking/completion desktop and390px captures inspected; instant-scroll test preparation resolved a misleading sticky-panel screenshot. Targeted final cooking/completion test passed in6.439s. Compose rebuilt with existing named storage retained; HTTP200 and new stylesheet confirmed on5050.
 

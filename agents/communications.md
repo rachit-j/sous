@@ -126,3 +126,11 @@ Claude Opus completed setup, cooking/tool layout and completion redesign, CSS to
 ### U3 verification and delivery
 
 Luna changed test preparation only: instant scroll, two animation frames, scroll-position and top-alignment assertions, viewport capture and completion captures at explicit desktop/mobile sizes. Targeted setup/cooking checks passed in8.292s; final cooking/completion test after desktop viewport correction passed in6.439s. Root inspected corrected screenshots: step column aligns with workspace, controls and completion fit both widths. Local Compose rebuilt successfully with existing volume retained; HTTP200 and redesigned stylesheet confirmed on5050. No backend/provider changes, personal browser or physical camera access. Design recorded in docs/design.md; root commits verified changes.
+
+### Desk demo dispatch
+
+User requested a recipe that can be tested at a desk without cooking materials. Luna owns only recipes/10-desk-demo.json and docs/recipes.md: four distinct held hand poses, empty ingredients list, explicit demo label, instructions for10-second sampling/two confirmations and final manual finish. No engine changes or fabricated inference. Codex validates loader/API exposure, rebuilds the local container and commits.
+
+### Desk demo return
+
+Luna added four poses and usage instructions, then corrected final-step copy to explicitly require Finish cooking. Codex inspected data/docs, ran eight focused loader/config tests successfully, rebuilt Compose retaining data, and confirmed API lists the default recipe followed by desk-demo with four steps and no ingredients. No UI/engine/provider changes or physical-camera tests. Gesture reliability is not guaranteed; manual Next and final Finish remain available.

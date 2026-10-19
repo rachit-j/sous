@@ -1,0 +1,28 @@
+{
+  "id": "desk-demo",
+  "name": "Desk demo — hand gestures",
+  "description": "A camera and model pipeline demo using static hand poses; no food or materials are needed.",
+  "ingredients": [],
+  "steps": [
+    {
+      "title": "Open palm",
+      "instruction": "Raise one hand, either hand, with your palm facing the camera and all fingers comfortably spread. Hold the pose steady facing the camera until the step advances. You can also select Analyze now twice or use Next manually.",
+      "visual_cue": "One hand is visible facing the camera with an open palm and separated fingers."
+    },
+    {
+      "title": "Closed fist",
+      "instruction": "With one hand, either hand, gently curl your fingers into a closed fist and face it toward the camera. Hold the pose steady facing the camera until the step advances. You can also select Analyze now twice or use Next manually.",
+      "visual_cue": "One hand is visible facing the camera with fingers curled into a closed fist."
+    },
+    {
+      "title": "Thumbs up",
+      "instruction": "With one hand, either hand, make a thumbs-up sign and face it toward the camera. Hold the pose steady facing the camera until the step advances. You can also select Analyze now twice or use Next manually.",
+      "visual_cue": "One hand is visible facing the camera with the thumb extended upward and the other fingers curled."
+    },
+    {
+      "title": "OK sign",
+      "instruction": "With one hand, either hand, touch your thumb and index fingertip to make a small circle, leave the other fingers extended, and face it toward the camera. Hold the pose steady facing the camera to let Sous observe the OK sign. You can select Analyze now if you like. The final step does not auto-finish; select Finish cooking yourself.",
+      "visual_cue": "One hand is visible facing the camera with thumb and index fingertip touching in a circle and the other fingers extended."
+    }
+  ]
+}

@@ -5,9 +5,11 @@
 - Phase: V2.1 account/isolation test-first implementation on feature/v2, branched from updated main (df712e2) after voice merged.
 - Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
 - Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
-- Next checkpoint: run Opus's new isolation tests before implementation, then integrate server-side accounts and per-user AWS vaults. Luna plans the UI contracts read-only. Local brag-output/ is preserved and ignored.
+- Next checkpoint: verify Opus's account/isolation implementation against the13 new failing tests and existing backend regressions. Luna's UI/API planning and isolation acceptance review completed read-only. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: Root ran13 new account tests RED: all fail on missing public /api/auth (404),0.428s, with no dependency failure. Opus resumed for bounded accounts.py/app/settings/voice integration and authenticated test fixtures. Luna identified race-safe per-user uniqueness, vault/auth invalidation before late writes and global voice-capacity cleanup as required acceptance conditions; added to docs/v2-api.md. TestFlight/native explicitly held off.
 
 - 2026-10-20: User approved added V2 cooking features and per-user AWS connections. Confirmed web first; explicitly deferred TestFlight/native iOS due to no paid Apple developer account. Wrote docs/v2.md and delivery slices. Opus is sole writer for new account tests (RED phase); Luna plans UI/API contracts read-only. No changes to normal Compose data or live AWS calls.
 

@@ -51,6 +51,16 @@ MAX_PENDING = 2  # unauthenticated sockets waiting for a start message
 START_LIMIT, START_WINDOW = 6, 60.0
 UPDATE_PREFIX = "[Sous update]"
 SDK_PROFILE = "sous-voice"
+MAX_CONTENTS = 32  # per-content role/stage entries kept for interleaved output
+# The only tool: zero-argument, read-only, answered by the request thread from the database.
+TOOL_NAME = "get_cooking_context"
+TOOL_SCHEMA = json.dumps({"type": "object", "properties": {}, "required": []})
+TOOL_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
+MAX_TOOL_INPUT = 1024  # bytes of accumulated toolUse content per call
+MAX_PENDING_TOOLS = 4
+MAX_TOOL_CALLS = 30  # per stream
+CONTEXT_REQUEST = "_context_request"  # internal outbox message; never sent to the browser
+TOOL_UNAVAILABLE = json.dumps({"error": "This tool is not available."})
 
 AUTH_FAILED = "Voice could not start. Reload the page and try again."
 BUSY = "Voice is busy. Try again in a moment."
@@ -65,6 +75,7 @@ BAD_AUDIO = "Voice stopped: the browser sent invalid audio."
 BAD_MESSAGE = "Voice stopped: unexpected message."
 SLOW = "Voice stopped because the connection fell behind. Cooking controls still work."
 CONNECT_FAILED = "AWS did not respond in time. Cooking controls still work; try voice again later."
+STILL_STOPPING = "The previous voice session is still closing. Try again in a moment."
 UNAVAILABLE = "Voice guidance is unavailable right now. Cooking controls still work."
 UPSTREAM_ERRORS = (  # matched against exception/event type names only, never upstream text
     ("AccessDenied", "AWS denied access to Nova 2 Sonic. Check IAM permissions and model access in this region."),
@@ -87,7 +98,10 @@ PERSONA = (
     "with their age; describe them as earlier observations, never as something you see now. "
     "Camera notes cannot confirm food safety; for safety questions suggest a thermometer or trusted "
     f"guidance. Messages starting with {UPDATE_PREFIX} come from the app, not the cook; respond to "
-    "them briefly and do not repeat earlier camera notes unless asked."
+    "them briefly and do not repeat earlier camera notes unless asked. "
+    f"When the cook asks about their current progress, how much time is left on the timer, or what "
+    f"the camera noticed recently, call {TOOL_NAME} first and answer from its result; it only reads "
+    "the app's current step, timer and latest camera note. Do not call it otherwise."
 )
 
 INTERRUPTED = re.compile(r'\{\s*"interrupted"\s*:\s*true\s*\}')
@@ -111,6 +125,7 @@ def error_name(exc):
 def new_state():
     return {"pending": threading.BoundedSemaphore(MAX_PENDING), "active": threading.Lock(),
             "starts": collections.deque(maxlen=START_LIMIT), "starts_lock": threading.Lock(),
+            "lingering": None,  # bridge that outlived its shutdown budget; blocks new streams
             "open_stream": SonicStream.open}
 
 
@@ -226,8 +241,9 @@ class SessionWatcher:
                 notes.append(f"A timer was set for {format_seconds(deadline - at)}. Acknowledge it in a few words.")
         if deadline is not None and at >= deadline and self.timer_done != deadline:
             self.timer_done = deadline
-            if not row["timer_alerted"]:
-                notes.append("The timer just finished. Tell the cook right away in one short sentence.")
+            # This watcher announces its first observed deadline crossing independently of the
+            # browser's timer_ack. The UI may acknowledge between polls while legacy TTS is muted.
+            notes.append("The timer just finished. Tell the cook right away in one short sentence.")
         alerts = self.db.execute(
             "SELECT id, message FROM events WHERE session_id = ? AND kind = 'alert' AND id > ?"
             " ORDER BY id DESC LIMIT 3", (self.session_id, self.last_event)).fetchall()
@@ -258,6 +274,12 @@ def setup_events(prompt, audio_content, voice_id, instructions):
             "audioOutputConfiguration": {
                 "mediaType": "audio/lpcm", "sampleRateHertz": OUTPUT_SAMPLE_RATE, "sampleSizeBits": 16,
                 "channelCount": 1, "voiceId": voice_id, "encoding": "base64", "audioType": "SPEECH"},
+            "toolUseOutputConfiguration": {"mediaType": "application/json"},
+            "toolConfiguration": {"tools": [{"toolSpec": {
+                "name": TOOL_NAME,
+                "description": "Read the current cooking step, timer and latest camera note when asked.",
+                "inputSchema": {"json": TOOL_SCHEMA},
+            }}]},
         }),
         *text_content(prompt, "SYSTEM", instructions, interactive=False),
         _event("contentStart", {
@@ -411,6 +433,13 @@ class SonicStream:
             return {}
         return data if isinstance(data, dict) else {}
 
+    async def wait_ready(self):
+        """Bound output-handshake readiness before the browser is told the stream is ready."""
+        if self._output is None:
+            _, self._output = await self._stream.await_output()
+        if self._output is None:
+            raise VoiceUpstreamError("OutputStreamUnavailable")
+
     async def close(self):
         closers = [self._stream.input_stream.close]
         if self._output is not None:
@@ -437,6 +466,9 @@ class VoiceBridge:
         self._loop_lock = threading.Lock()
         self._loop = self._wake = self._stop = None
         self._role = self._stage = None
+        self._content_states = collections.OrderedDict()
+        self._tool_contents = collections.OrderedDict()
+        self._tool_calls = 0
         self._last_transcript = None
         self._interrupt_sent = False
         self._thread = threading.Thread(target=self._run, name="sous-voice", daemon=True)
@@ -546,6 +578,11 @@ class VoiceBridge:
             ok, _ = await self._guarded(self._setup(stream))
             if not ok:
                 return
+            wait_ready = getattr(stream, "wait_ready", None)
+            if wait_ready is not None:
+                ok, _ = await self._guarded(wait_ready())
+                if not ok:
+                    return
             self._emit({"type": "ready", "model": MODEL_ID, "voice": self._voice_id,
                         "input_sample_rate": INPUT_SAMPLE_RATE, "output_sample_rate": OUTPUT_SAMPLE_RATE})
             receiver = asyncio.create_task(self._receive_loop(stream))
@@ -600,6 +637,19 @@ class VoiceBridge:
                                                   self._instructions))
         await self._send_all(stream, text_content(self._prompt, "USER", self._greeting, interactive=True))
 
+    async def _send_tool_result(self, stream, content_name, tool_use_id, result):
+        await self._send_all(stream, [
+            _event("contentStart", {
+                "promptName": self._prompt, "contentName": content_name, "type": "TOOL",
+                "role": "TOOL", "interactive": False,
+                "toolResultInputConfiguration": {"toolUseId": tool_use_id, "type": "TEXT",
+                                                  "textInputConfiguration": {"mediaType": "text/plain"}},
+            }),
+            _event("toolResult", {"promptName": self._prompt, "contentName": content_name,
+                                  "content": json.dumps(result, ensure_ascii=True)}),
+            _event("contentEnd", {"promptName": self._prompt, "contentName": content_name}),
+        ])
+
     async def _send_loop(self, stream):
         try:
             while not self._stop.is_set():
@@ -612,8 +662,11 @@ class VoiceBridge:
                     continue
                 if kind == "audio":
                     await stream.send(audio_event(self._prompt, self._audio_content, value))
-                else:  # one complete text block; no audio is interleaved within it
+                elif kind == "text":  # one complete text block; no audio is interleaved within it
                     await self._send_all(stream, text_content(self._prompt, "USER", value, interactive=True))
+                elif kind == "tool_result":
+                    content_name, tool_use_id, result = value
+                    await self._send_tool_result(stream, content_name, tool_use_id, result)
         except Exception as exc:
             logger.warning("Voice upstream send failed: %s", type(exc).__name__)
             self._finish("error", public_error(exc))
@@ -637,29 +690,57 @@ class VoiceBridge:
             return
         if isinstance(event.get("contentStart"), dict):
             start = event["contentStart"]
-            self._role = start.get("role")
-            self._stage = generation_stage(start.get("additionalModelFields"))
+            key = start.get("contentId") or start.get("contentName")
+            state = {"role": start.get("role"), "stage": generation_stage(start.get("additionalModelFields")),
+                     "type": start.get("type")}
+            self._role, self._stage = state["role"], state["stage"]
+            if isinstance(key, str) and key:
+                self._content_states[key] = state
+                self._content_states.move_to_end(key)
+                while len(self._content_states) > MAX_CONTENTS:
+                    self._content_states.popitem(last=False)
+                if state["type"] == "TOOL":
+                    if len(self._tool_contents) >= MAX_PENDING_TOOLS and key not in self._tool_contents:
+                        return
+                    self._tool_contents[key] = {"tool_name": None, "tool_use_id": None, "content": ""}
         elif isinstance(event.get("textOutput"), dict):
-            self._text_output(event["textOutput"])
+            output = event["textOutput"]
+            key = output.get("contentId") or output.get("contentName")
+            state = self._content_states.get(key) if isinstance(key, str) else None
+            self._text_output(output, state)
         elif isinstance(event.get("audioOutput"), dict):
             self._audio_output(event["audioOutput"].get("content"))
+        elif isinstance(event.get("toolUse"), dict):
+            self._tool_fragment(event["toolUse"])
         elif isinstance(event.get("contentEnd"), dict):
-            if event["contentEnd"].get("stopReason") == "INTERRUPTED":
+            end = event["contentEnd"]
+            if end.get("stopReason") == "INTERRUPTED":
                 self._interrupted()
+            key = end.get("contentId") or end.get("contentName")
+            if isinstance(key, str):
+                if key in self._tool_contents:
+                    if end.get("stopReason") == "TOOL_USE":
+                        if end.get("type") == "TOOL":
+                            self._finish_tool(key)
+                        else:
+                            self._tool_contents.pop(key, None)
+                    else:
+                        self._tool_contents.pop(key, None)
+                self._content_states.pop(key, None)
 
     def _interrupted(self):
         if not self._interrupt_sent:  # textOutput marker and contentEnd may both report it
             self._interrupt_sent = True
             self._emit({"type": "interrupted"})
 
-    def _text_output(self, output):
+    def _text_output(self, output, state=None):
         content = output.get("content")
         if not isinstance(content, str):
             return
         if is_interrupted(content):
             self._interrupted()
             return
-        role = output.get("role") or self._role
+        role = output.get("role") or (state or {}).get("role") or self._role
         text = clean_text(content, MAX_TRANSCRIPT)
         if not text:
             return
@@ -668,7 +749,7 @@ class VoiceBridge:
                 return
             final = True
         elif role == "ASSISTANT":
-            final = self._stage != "SPECULATIVE"
+            final = (state or {}).get("stage", self._stage) != "SPECULATIVE"
         else:
             return
         key = (role, text, final)
@@ -676,6 +757,58 @@ class VoiceBridge:
             return
         self._last_transcript = key
         self._emit({"type": "transcript", "role": role.lower(), "text": text, "final": final})
+
+    def _tool_fragment(self, part):
+        key = part.get("contentId") or part.get("contentName")
+        if not isinstance(key, str) or not key:
+            return
+        item = self._tool_contents.get(key)
+        if item is None:
+            if len(self._tool_contents) >= MAX_PENDING_TOOLS:
+                return
+            item = {"tool_name": None, "tool_use_id": None, "content": ""}
+            self._tool_contents[key] = item
+        name, tool_id, content = part.get("toolName"), part.get("toolUseId"), part.get("content", "")
+        if isinstance(name, str):
+            item["tool_name"] = name
+        if isinstance(tool_id, str):
+            item["tool_use_id"] = tool_id
+        current_size = len(item["content"].encode("utf-8", "replace"))
+        content_size = len(content.encode("utf-8", "replace")) if isinstance(content, str) else MAX_TOOL_INPUT + 1
+        if not isinstance(content, str) or current_size + content_size > MAX_TOOL_INPUT:
+            item["content"] = "!invalid!"
+        elif item["content"] != "!invalid!":
+            item["content"] += content
+
+    def _finish_tool(self, key):
+        item = self._tool_contents.pop(key, None)
+        if item is None:
+            return
+        self._tool_calls += 1
+        tool_id = item["tool_use_id"]
+        valid_id = isinstance(tool_id, str) and TOOL_ID.fullmatch(tool_id)
+        valid_name = item["tool_name"] == TOOL_NAME
+        try:
+            args = json.loads(item["content"] or "{}")
+        except (ValueError, TypeError):
+            args = None
+        valid_args = isinstance(args, dict) and not args
+        if self._tool_calls > MAX_TOOL_CALLS:
+            result = {"error": "Request limit reached."}
+        elif not valid_name or not valid_args or item["content"] == "!invalid!":
+            result = {"error": "Unsupported or invalid read-only request."}
+        else:
+            result = None  # controller reads fresh server state on its request thread
+        if not valid_id:
+            return
+        if result is None:
+            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id})
+        else:
+            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id,
+                        "result": result})
+
+    def answer_context(self, content_name, tool_use_id, result):
+        return self._offer(("tool_result", (content_name, tool_use_id, result)))
 
     def _audio_output(self, content):
         if not isinstance(content, str) or len(content) > MAX_OUTPUT_AUDIO * 4 // 3 + 4:
@@ -735,9 +868,14 @@ def _serve(ws, session_id, expected_csrf, db, voice_id):
     if not state["active"].acquire(blocking=False):
         return _error(ALREADY_ACTIVE)
     try:
+        lingering = state.get("lingering")
+        if lingering is not None:
+            if lingering._thread.is_alive():
+                return _error(STILL_STOPPING)
+            state["lingering"] = None
         if not _allow_start(state):
             return _error(TOO_MANY)
-        return _run(ws, state["open_stream"], db, session_id, row, vault, connection, voice_id)
+        return _run(ws, state, state["open_stream"], db, session_id, row, vault, connection, voice_id)
     finally:
         state["active"].release()
 
@@ -777,7 +915,7 @@ def _valid_pcm(data):
     return 2 <= len(data) <= MAX_AUDIO_FRAME and len(data) % 2 == 0
 
 
-def _run(ws, open_stream, db, session_id, row, vault, connection, voice_id):
+def _run(ws, state, open_stream, db, session_id, row, vault, connection, voice_id):
     recipe = json.loads(row["recipe_snapshot"])
     clock = current_app.config["CLOCK"]
     at = clock()
@@ -792,6 +930,19 @@ def _run(ws, open_stream, db, session_id, row, vault, connection, voice_id):
         while terminal is None:
             finished = bridge.finished.is_set()
             for message in bridge.drain():
+                if message["type"] == CONTEXT_REQUEST:
+                    if "result" in message:
+                        result = message["result"]
+                    else:
+                        fresh = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+                        if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"]:
+                            result = {"error": NOT_ACTIVE}
+                        else:
+                            fresh_recipe = json.loads(fresh["recipe_snapshot"])
+                            result = {"context": describe_state(fresh_recipe, fresh, clock())[:MAX_CONTEXT]}
+                    if not bridge.answer_context(message["content_name"], message["tool_use_id"], result):
+                        terminal = _error(SLOW)
+                    continue  # internal request: never expose it to the browser
                 if message["type"] == "ready":
                     ready, last_audio = True, time.monotonic()
                 ws.send(json.dumps(message))
@@ -836,4 +987,5 @@ def _run(ws, open_stream, db, session_id, row, vault, connection, voice_id):
         bridge.stop()
         if not bridge.join(SHUTDOWN_TIMEOUT):
             logger.warning("Voice bridge did not stop within %s s.", SHUTDOWN_TIMEOUT)
+            state["lingering"] = bridge
     return terminal

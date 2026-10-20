@@ -3,11 +3,17 @@
 ## Current
 
 - Phase: conversational AWS voice on feature/conversational-voice, branched from pulled main (0cadc7a).
-- Active: Opus backend implemented; 96 reported unit tests passed (5 optional skips). Luna is sole UI writer; independent backend review and disposable Docker build underway. Existing Compose app remains at http://127.0.0.1:5050.
-- Blockers: none. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
+- Active: backend review fixes verified; full unit suite passed102 reported tests (7 optional skips). Browser regression and real localhost WebSocket tests underway; all14 original non-live UI cases passed before new voice cases. Existing Compose app remains at http://127.0.0.1:5050.
+- Blockers: Claude hit its session usage limit during review fixes (reset9:10pm America/New_York), not a permission failure. Luna takes over; no need for additional permissions. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
 - Next checkpoint: backend verification/commit, then Luna UI and isolated WebKit/Docker verification. Preserve unrelated brag-output/.
 
 ## Milestones
+
+- 2026-10-19: Full unit discovery passed102 reported tests in24.803s (7 optional skips) after test-harness corrections. Verified timer acknowledgement race, fresh read-only context, real SDK setup, bounded output-handshake timeout, interleaved content and lingering-stream failclosed behavior. Browser fixtures corrected; original14 non-live cooking/Settings cases passed in current run. New voice cases and actual Flask-Sock integration still running.
+
+- 2026-10-19: Luna completed bounded backend review fixes. Focused voice rerun:26 tests in6.885s,3 errors in new test setup (missing constructor argument, missing fake-stream installation and unqualified name). Root also requested official TOOL contentEnd/TOOL_USE stopReason test shapes and failclosed fake-provider defaults. UI corrections proceed first to preserve single-writer discipline. Independent frontend review found no additional P1/P2 beyond queued fixes.
+
+- 2026-10-19: Linux Docker build succeeded with official streaming SDK/CRT; all20 voice backend tests passed in3.684s. Luna delivered initial UI and synthetic-worklet browser tests. Root interrupted first browser run after finding inconsistent mocked vault metadata prevented microphone startup. Review found timer-ack race, stale voice context and too-short browser playback buffer. Opus follow-up hit session quota after partial constants/persona edits; Luna reviewer is sole writer completing bounded backend fixes. Frontend owner awaits handoff for UI/harness corrections. No user app restart or live AWS call.
 
 - 2026-10-19: Opus (claude-opus-5-5) completed secure voice backend with explicit CRT HTTP/2/static credentials, same-origin/CSRF startup, bounded queues, seven-minute call limit and lock/session teardown. Codex observed 96 tests passing in13.477s (5 optional skips). No live AWS/audio call. Luna owns browser audio/UI; read-only backend review and Linux image dependency build underway.
 

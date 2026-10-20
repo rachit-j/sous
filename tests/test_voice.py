@@ -87,6 +87,8 @@ class FakeStream:
         self.sent = []
         self.incoming = queue.Queue()
         self.closed = threading.Event()
+        self.ready_started = threading.Event()
+        self.block_ready = False
         self.block = False
 
     async def send(self, item):
@@ -104,6 +106,11 @@ class FakeStream:
             if isinstance(item, BaseException):
                 raise item
             return item
+
+    async def wait_ready(self):
+        self.ready_started.set()
+        if self.block_ready:
+            await asyncio.sleep(3600)
 
     async def close(self):
         self.closed.set()
@@ -126,6 +133,9 @@ class FakeStream:
 class VoiceTestCase(SettingsTestCase):
     def setUp(self):
         super().setUp()
+        async def deny_unmocked_voice(_connection):
+            raise AssertionError("Voice test must install a synthetic upstream stream.")
+        self.app.extensions["sous_voice"]["open_stream"] = deny_unmocked_voice
         patcher = mock.patch.multiple(voice, START_TIMEOUT=0.2, CONNECT_TIMEOUT=1.0, POLL_INTERVAL=0.05,
                                       IDLE_TIMEOUT=5.0, MAX_STREAM_SECONDS=10.0)
         patcher.start()
@@ -150,12 +160,13 @@ class VoiceTestCase(SettingsTestCase):
         self.save_bedrock(session_token=TOKEN, **connection)
         self.session = self.start()
 
-    def serve(self, ws, session_id=None):
+    def serve(self, ws, session_id=None, expect_thread_exit=True):
         sid = session_id or self.session["id"]
         with self.app.test_request_context(f"/api/sessions/{sid}/voice"):
             db = get_db()
             voice.serve(ws, sid, self.token, db, get_voice_id(db))
-        self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
+        if expect_thread_exit:
+            self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
         return ws.sent
 
     def converse(self, *steps, stream=None):
@@ -337,7 +348,8 @@ class VoiceStreamTests(VoiceTestCase):
         prompt = stream.payload("promptStart")[0]
         self.assertEqual(prompt["audioOutputConfiguration"]["voiceId"], "matthew")
         self.assertEqual(prompt["audioOutputConfiguration"]["sampleRateHertz"], 24000)
-        self.assertNotIn("toolConfiguration", prompt)  # advice only: no tools
+        self.assertEqual([tool["toolSpec"]["name"] for tool in prompt["toolConfiguration"]["tools"]],
+                         [voice.TOOL_NAME])  # only the bounded read-only context lookup
         starts = stream.payload("contentStart")
         self.assertEqual([(s["type"], s["role"], s["interactive"]) for s in starts[:3]],
                          [("TEXT", "SYSTEM", False), ("AUDIO", "USER", True), ("TEXT", "USER", True)])
@@ -462,6 +474,132 @@ class VoiceStreamTests(VoiceTestCase):
         self.assertIn("you cannot see the kitchen now", alert)
         self.assertEqual(len(updates()), 4)
 
+    def test_timer_expiry_survives_browser_ack_and_is_not_repeated_on_start(self):
+        sid = self.session["id"]
+        self.act(sid, "timer_set", seconds=1)
+        with self.app.test_request_context("/"):
+            db = get_db()
+            row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+            recipe = json.loads(row["recipe_snapshot"])
+            watcher = voice.SessionWatcher(db, sid, recipe, row, self.clock)
+            self.clock += 2
+            db.execute("UPDATE sessions SET timer_alerted = 1 WHERE id = ?", (sid,))
+            update, end = watcher.poll(self.clock)
+            self.assertIsNone(end)
+            self.assertIn("timer just finished", update)
+            self.assertIsNone(watcher.poll(self.clock)[0])
+            row = db.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+            late_watcher = voice.SessionWatcher(db, sid, recipe, row, self.clock)
+            self.assertIsNone(late_watcher.poll(self.clock)[0])
+
+    def test_tool_reads_fresh_context_after_greeting_without_writing_session(self):
+        sid = self.session["id"]
+        stream = FakeStream()
+        observation = json.dumps({"activity": "whisking", "evidence": "rapid movement in the bowl",
+                                  "confidence": 0.6, "step_complete": False, "alert": None,
+                                  "created_at": self.clock})
+
+        def update_context():
+            self.sql("UPDATE sessions SET timer_deadline = ?, latest_observation = ? WHERE id = ?",
+                     (self.clock + 90, observation, sid))
+
+        def ask_context():
+            stream.push(
+                event("contentStart", contentId="tool-content-1", type="TOOL", role="ASSISTANT"),
+                event("toolUse", contentId="tool-content-1", toolName=voice.TOOL_NAME,
+                      toolUseId="tool_use_1", content="{"),
+                event("toolUse", contentId="tool-content-1", content="}"),
+                event("contentEnd", contentId="tool-content-1", type="TOOL", stopReason="TOOL_USE"),
+            )
+
+        before = None
+
+        def capture_before():
+            nonlocal before
+            with self.app.test_request_context("/"):
+                row = get_db().execute("SELECT step_index, timer_deadline, latest_observation, timer_alerted"
+                                       " FROM sessions WHERE id = ?", (sid,)).fetchone()
+                before = tuple(row)
+
+        ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(), run(update_context),
+                    run(capture_before), run(ask_context),
+                    lambda w: "toolResult" in stream.kinds(), json.dumps({"type": "stop"}))
+        calls = self.install(stream)
+        sent = self.serve(ws)
+        result_event = stream.payload("toolResult")[0]
+        result = json.loads(result_event["content"])
+        self.assertIn("whisking", result["context"])
+        self.assertIn("1 min 30 s left", result["context"])
+        self.assertNotIn(voice.CONTEXT_REQUEST, [item["type"] for item in sent])
+        with self.app.test_request_context("/"):
+            row = get_db().execute("SELECT step_index, timer_deadline, latest_observation, timer_alerted"
+                                   " FROM sessions WHERE id = ?", (sid,)).fetchone()
+            self.assertEqual(tuple(row), before)
+
+    def test_unknown_and_malformed_tools_return_static_error_without_execution(self):
+        bridge = voice.VoiceBridge(None, None, "tiffany", "", "")
+        for index, (name, content) in enumerate((
+                ("unknown_tool", "{}"), (voice.TOOL_NAME, "{not-json"),
+                (voice.TOOL_NAME, '{"action":"finish"}'))):
+            key = f"content-{index}"
+            bridge.handle(event("contentStart", contentId=key, type="TOOL", role="ASSISTANT"))
+            bridge.handle(event("toolUse", contentId=key, toolName=name, toolUseId=f"id_{name}",
+                                content=content))
+            bridge.handle(event("contentEnd", contentId=key, type="TOOL", stopReason="TOOL_USE"))
+        bridge.handle(event("contentStart", contentId="incomplete", type="TOOL", role="ASSISTANT"))
+        bridge.handle(event("toolUse", contentId="incomplete", toolName=voice.TOOL_NAME,
+                            toolUseId="id_incomplete", content="{}"))
+        bridge.handle(event("contentEnd", contentId="incomplete", type="TOOL", stopReason="CANCELLED"))
+        messages = bridge.drain()
+        self.assertEqual(len(messages), 3)
+        self.assertTrue(all(item["type"] == voice.CONTEXT_REQUEST and "result" in item for item in messages))
+        self.assertTrue(all(item["result"] == {"error": "Unsupported or invalid read-only request."}
+                            for item in messages))
+
+    def test_output_handshake_timeout_has_no_ready_and_closes_stream(self):
+        stream = FakeStream()
+        stream.block_ready = True
+        self.install(stream)
+        with mock.patch.object(voice, "CONNECT_TIMEOUT", 0.15):
+            sent = self.serve(FakeWS(start_message(self.token)))
+        self.assertEqual(sent, [{"type": "error", "message": voice.CONNECT_FAILED}])
+        self.assertTrue(stream.ready_started.is_set())
+        self.assertTrue(stream.closed.is_set())
+
+    def test_lingering_bridge_fails_closed_until_prior_thread_exits(self):
+        release = threading.Event()
+        calls = []
+
+        async def slow_open(_connection):
+            calls.append("open")
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                while not release.is_set():
+                    try:
+                        await asyncio.sleep(0.01)
+                    except asyncio.CancelledError:
+                        continue
+                raise
+
+        self.app.extensions["sous_voice"]["open_stream"] = slow_open
+        with mock.patch.object(voice, "CONNECT_TIMEOUT", 0.05), \
+                mock.patch.object(voice, "CLOSE_STEP_TIMEOUT", 0.25), \
+                mock.patch.object(voice, "SHUTDOWN_TIMEOUT", 0.01):
+            first = self.serve(FakeWS(start_message(self.token), lambda _w: bool(calls),
+                                      json.dumps({"type": "stop"})), expect_thread_exit=False)
+            self.assertEqual(first, [{"type": "stopped", "reason": "client_stop"}])
+            lingering = self.app.extensions["sous_voice"]["lingering"]
+            self.assertIsNotNone(lingering)
+            self.assertTrue(lingering._thread.is_alive())
+            second = self.serve(FakeWS(start_message(self.token)), expect_thread_exit=False)
+            self.assertEqual(second, [{"type": "error", "message": voice.STILL_STOPPING}])
+            self.assertEqual(calls, ["open"])
+            release.set()
+            lingering._thread.join(2)
+            self.assertFalse(lingering._thread.is_alive())
+            self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
+
 
 class BridgeMappingTests(SettingsTestCase):
     def bridge(self):
@@ -489,6 +627,16 @@ class BridgeMappingTests(SettingsTestCase):
         self.assertEqual(voice.generation_stage({"generationStage": "FINAL"}), "FINAL")
         for bad in ("not json", "[]", None, 5):
             self.assertIsNone(voice.generation_stage(bad))
+
+    def test_interleaved_content_ids_keep_generation_stage_attached(self):
+        bridge = self.bridge()
+        bridge.handle(event("contentStart", contentId="spec", role="ASSISTANT", type="TEXT",
+                            additionalModelFields=SPECULATIVE))
+        bridge.handle(event("contentStart", contentId="final", role="ASSISTANT", type="TEXT",
+                            additionalModelFields=FINAL))
+        bridge.handle(event("textOutput", contentId="spec", content="Draft"))
+        bridge.handle(event("textOutput", contentId="final", content="Answer"))
+        self.assertEqual([item["final"] for item in bridge.drain()], [False, True])
 
     def test_public_errors_use_type_names_only(self):
         class AccessDeniedException(Exception):

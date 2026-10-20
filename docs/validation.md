@@ -2,9 +2,13 @@
 
 ## Current state
 
-MVP application and Docker packaging verified. Recipes are generic structured JSON, with scrambled eggs bundled first. User-driven live Bedrock desk-demo inference and automatic progression are verified. Conversational voice protocol and browser audio processing are verified with synthetic audio and mocked AWS; audible quality, real microphone interruption, cooking accuracy and other cloud providers remain manual/configuration-dependent checks.
+V2 verification is in progress on feature/v2; see [status](../STATUS.md). Account/recipe/cooking backends and disposable Docker persistence are verified; final integrated browser checks remain. Earlier V1 evidence below is historical. User-driven V1 Bedrock desk-demo inference does not establish V2 live-model quality. Audible quality, physical-device behavior and cooking accuracy remain manual checks.
 
 ## Observed checks
+
+- 2026-10-20 V2 backend: accounts18tests11.037s; recipe/library/generation16tests7.391s; cooking/provider/voice62tests14.655s. After independent-review fixes, full discovery passed166 reported tests48.782s (10optional skips). Race coverage includes password reset/login, logout during inference, vault lock through result commit and same-credential lock/unlock voice revocation. Recipes, history, notes, timers, checklists and alerts are tested across two users. AI generation uses synthetic AWS SDK responses and rejects stale auth/credentials before returning a draft.
+- V2 Docker: Compose validation and Linux image build passed. Linux unittest discovery passed167 reported tests36.245s (11optional skips). Three disposable5051 persistence cases passed9.584s, including real restarts with persisted auth cookies, private recipe/session/named timer isolation, retained preferences and passphrase-encrypted account vaults returning locked. Test project was stopped without deleting its volume; normal5050 data was not part of these tests.
+- V2 actual localhost voice WebSockets:3tests passed2.575s with real account cookies/CSRF, synthetic upstream and signed-out handshake rejection. No real AWS voice call or physical microphone.
 
 - Final voice delivery: corrected capture/preference case passed in3.063s; desktop/mobile screenshots inspected with instant-scroll preparation. Both real socket cases passed after rejection-socket cleanup. Normal Compose rebuilt and returned HTTP200 on5050; safe Settings metadata confirmed locked initialized vault, voice off and retained user snapshot preference. No data volume reset. Live AWS voice quality/model access remain for user testing.
 

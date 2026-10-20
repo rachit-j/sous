@@ -59,18 +59,45 @@ class ContainerTestCase(unittest.TestCase):
         verify_fixture_identity()
         self.http = requests.Session()  # keeps the signed session cookie like a browser
         self.token = self.load_index()
+        self.authenticate_fixture_admin()
         self.addCleanup(self.end_active_session)
         self.end_active_session()  # the disposable stack may hold a session from an earlier run
 
     def load_index(self):
-        page = self.http.get(f"{BASE_URL}/", timeout=10)
-        self.assertEqual(page.status_code, 200)
-        return re.search(r'name="csrf-token" content="([^"]+)"', page.text).group(1)
+        response = self.http.get(f"{BASE_URL}/api/auth", timeout=10)
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()["csrf_token"]
+
+    def auth_request(self, client, method, path, token, body=None):
+        return client.request(method, f"{BASE_URL}{path}", json=body,
+                              headers={"X-CSRF-Token": token}, timeout=15)
+
+    def authenticate_fixture_admin(self):
+        """Use a known synthetic account; never reset or adopt an unknown persisted fixture."""
+        state = self.http.get(f"{BASE_URL}/api/auth", timeout=10).json()
+        if state["setup_required"]:
+            response = self.auth_request(self.http, "POST", "/api/auth/setup", self.token,
+                                         {"username": "sousverify", "password": "sous-verify-login-passphrase"})
+        else:
+            response = self.auth_request(self.http, "POST", "/api/auth/login", self.token,
+                                         {"username": "sousverify", "password": "sous-verify-login-passphrase"})
+        self.assertEqual(response.status_code, 201 if state["setup_required"] else 200,
+                         "sous-verify has an unknown persisted account; refusing to reset or mutate it")
+        self.token = response.json()["csrf_token"]
+        self.assertEqual(response.json()["user"]["username"], "sousverify")
 
     def api(self, method, path, **kwargs):
         headers = {"X-CSRF-Token": self.token} if method != "GET" else {}
         return self.http.request(method, f"{BASE_URL}{path}", headers=headers,
                                  timeout=kwargs.pop("timeout", 15), **kwargs)
+
+    def login_fixture_user(self, username, password):
+        client = requests.Session()
+        state = client.get(f"{BASE_URL}/api/auth", timeout=10).json()
+        response = self.auth_request(client, "POST", "/api/auth/login", state["csrf_token"],
+                                     {"username": username, "password": password})
+        self.assertEqual(response.status_code, 200, response.text)
+        return client, response.json()["csrf_token"]
 
     def end_active_session(self):
         active = self.api("GET", "/api/sessions/active").json()["session"]
@@ -185,6 +212,73 @@ class ContainerPersistenceTests(ContainerTestCase):
         self.assertNotIn(secret_key, unlocked.text)
         self.assertNotIn(passphrase, unlocked.text)
         self.api("POST", "/api/settings/lock", json={})
+
+    def test_account_owned_recipe_session_and_named_timer_persist_and_stay_private(self):
+        users = self.api("GET", "/api/users")
+        self.assertEqual(users.status_code, 200, users.text)
+        fixture_bob = next((item for item in users.json()["users"] if item["username"] == "sousbob"), None)
+        if fixture_bob is None:
+            created_user = self.api("POST", "/api/users", json={
+                "username": "sousbob", "password": "sous-verify-bob-login-passphrase"})
+            self.assertEqual(created_user.status_code, 201, created_user.text)
+            bob_id = created_user.json()["user"]["id"]
+        else:
+            bob_id = fixture_bob["id"]
+            # A reused fixture is accepted only if its known synthetic account still authenticates.
+            self.login_fixture_user("sousbob", "sous-verify-bob-login-passphrase")
+
+        recipe = {
+            "name": "Verify Fixture Recipe", "description": "Synthetic container persistence fixture.",
+            "servings": 2, "equipment": ["bowl"],
+            "ingredients": ["1 cup oats"],
+            "steps": [{"title": "Mix", "instruction": "Mix the oats.", "visual_cue": "Oats are mixed."}],
+        }
+        saved = self.api("POST", "/api/recipes", json={"recipe": recipe, "scope": "personal"})
+        self.assertEqual(saved.status_code, 201, saved.text)
+        recipe_id = saved.json()["recipe"]["id"]
+        self.assertEqual(saved.json()["recipe"]["scope"], "personal")
+
+        started = self.api("POST", "/api/sessions", json={
+            "recipe_id": recipe_id, "provider": "ollama", "model": "test-model", "mode": "monitoring"})
+        self.assertEqual(started.status_code, 201, started.text)
+        session_id = started.json()["id"]
+        timer_path = f"/api/sessions/{session_id}/timers"
+        timer_resp = self.api("POST", timer_path, json={"name": "Rest", "duration_seconds": 3600})
+        self.assertEqual(timer_resp.status_code, 201, timer_resp.text)
+        timer_id = next(item["id"] for item in timer_resp.json()["timers"] if item["name"] == "Rest")
+        alice_preferences = self.api("PUT", "/api/settings/preferences", json={"sample_interval": 15})
+        self.assertEqual(alice_preferences.status_code, 200, alice_preferences.text)
+
+        compose("restart", "sous", check=True, timeout=300,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.wait_until_ready()
+        self.token = self.load_index()  # cookie persists, CSRF token may be refreshed by auth state
+
+        restored_recipe = self.api("GET", f"/api/recipes/{recipe_id}")
+        self.assertEqual(restored_recipe.status_code, 200, restored_recipe.text)
+        restored_session = self.api("GET", f"/api/history/{session_id}")
+        self.assertEqual(restored_session.status_code, 200, restored_session.text)
+        timers = self.api("GET", timer_path).json()["timers"]
+        self.assertEqual([(item["id"], item["status"]) for item in timers], [(timer_id, "running")])
+
+        bob, bob_token = self.login_fixture_user("sousbob", "sous-verify-bob-login-passphrase")
+        headers = {"X-CSRF-Token": bob_token}
+        bob_library = bob.get(f"{BASE_URL}/api/recipes", timeout=15)
+        self.assertEqual(bob_library.status_code, 200, bob_library.text)
+        bob_recipes = bob_library.json()["recipes"]
+        self.assertNotIn(recipe_id, {item["id"] for item in bob_recipes})
+        self.assertEqual(bob.get(f"{BASE_URL}/api/recipes/{recipe_id}", timeout=15).status_code, 404)
+        self.assertEqual(bob.get(f"{BASE_URL}/api/history/{session_id}", timeout=15).status_code, 404)
+        self.assertEqual(bob.get(f"{BASE_URL}{timer_path}", timeout=15).status_code, 404)
+        self.assertEqual(bob.get(f"{BASE_URL}/api/sessions/active", timeout=15).json()["session"], None)
+        self.assertEqual(bob.get(f"{BASE_URL}/api/settings", timeout=15).status_code, 200)
+        # The two users have separate preference records; Bob starts with the default interval.
+        self.assertEqual(bob.get(f"{BASE_URL}/api/settings", timeout=15).json()["sample_interval"], 10)
+        self.assertEqual(self.api("GET", "/api/settings").json()["sample_interval"], 15)
+        self.assertEqual(bob_id, bob.get(f"{BASE_URL}/api/auth", timeout=15).json()["user"]["id"])
+        # Mutations still require Bob's own CSRF token, never Alice's token.
+        self.assertEqual(bob.post(f"{BASE_URL}/api/sessions/{session_id}/timers/{timer_id}/ack",
+                                  headers=headers, json={}, timeout=15).status_code, 404)
 
     def wait_until_ready(self):
         for _ in range(40):

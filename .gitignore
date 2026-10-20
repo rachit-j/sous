@@ -23,3 +23,6 @@ venv/
 
 # OS / tools
 .DS_Store
+
+# Local launch-video output
+/brag-output/

@@ -2,6 +2,10 @@
 
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
+## Repository handoff — 2026-10-20
+
+User authorized ignoring local brag-output/ and pushing all relevant feature work for their MR. Codex refreshed project context and remote refs: feature/conversational-voice is five commits ahead of origin/main with no remote divergence or other application edits. Root-only housekeeping adds the ignore rule and records this handoff; no application implementation delegated. Fresh unit discovery passed102 reported tests (7 optional skips); JavaScript syntax and whitespace checks passed. Preserve generated brag files locally; push only this feature branch, without opening or merging an MR.
+
 ## Conversational voice — 2026-10-19
 
 Final integration: root committed UI/docs48abb26, rebuilt normal Compose on5050 and confirmed HTTP200 plus safe locked-vault/voice metadata. User data retained; test stack stopped with its volume retained. All implementation writers finished. Real AWS audio/hardware trial is user-driven after unlock. Root leaves brag-output/ untracked/untouched and does not push or open an MR.

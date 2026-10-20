@@ -5,9 +5,11 @@
 - Phase: conversational AWS voice delivered on feature/conversational-voice, branched from pulled main (0cadc7a).
 - Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
 - Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
-- Next checkpoint: user unlocks Settings, selects Tiffany/Matthew and starts Voice companion during a recipe. Branch ready for user push/MR; unrelated brag-output/ remains untouched and untracked.
+- Next checkpoint: push feature/conversational-voice for the user's MR. User unlocks Settings, selects Tiffany/Matthew and starts Voice companion during a recipe. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: Refreshed repository context and fetched origin; no newer remote commits found. User authorized pushing the feature branch. Added root brag-output/ exclusion without changing its files. Fresh unittest discovery passed102 reported tests in13.355s (7 optional skips); all three JavaScript syntax checks and Git whitespace checks passed. Preparing cleanup commit and normal push; no application changes or live AWS/hardware tests.
 
 - 2026-10-19: UI/docs committed48abb26 after verification. Normal Docker Compose rebuilt/recreated successfully with persistent volume retained; root page HTTP200 and loopback5050 running confirmed. Safe metadata shows initialized/locked vault, Nova2Sonic model, Tiffany default and retained5-second snapshot interval. Final screenshot/preference check passed in3.063s; desktop/mobile inspected. No live AWS voice, physical microphone or personal browser used. All application changes committed; brag-output/ untouched.
 

@@ -26,6 +26,7 @@
     toastTimer: null,
     restored: false,
     renderedStepKey: "",
+    companion: null,
   };
 
   const api = async (path, options = {}) => {
@@ -279,6 +280,11 @@
     $("#sample-interval").value = String(settings.sample_interval ?? 10);
     $("#sample-interval").disabled = false;
     $("#save-interval").disabled = false;
+    $("#voice-preference").value = settings.voice?.voice_id || "tiffany";
+    const voiceReason = settings.voice?.reason || "";
+    $("#voice-preference-summary").textContent = voiceReason
+      ? `${settings.voice?.model || "Amazon Nova 2 Sonic"} is independent of the camera guidance model. ${voiceReason}`
+      : `${settings.voice?.model || "Amazon Nova 2 Sonic"}, independent of the camera guidance model. Choose the voice used when you start the companion.`;
     clearSettingsSecrets();
     renderGuidanceSummary();
     updateStartAvailability();
@@ -302,6 +308,7 @@
 
   async function showSettings() {
     if (state.settingsView) return;
+    stopVoiceCompanion("Voice stopped because Settings was opened.");
     $("#nav-settings").disabled = true;
     if (state.session?.status === "active") {
       // Invalidate a pending permission prompt; a late stream will be stopped by enableCamera's generation guard.
@@ -332,6 +339,11 @@
       setVoiceMessage("Voice input is off while Settings is open.");
     }
     clearSettingsSecrets();
+    // Keep the voice selection unavailable until the async settings refresh
+    // has supplied the persisted voice_id; otherwise renderSettings can race
+    // and overwrite a selection made just after opening Settings.
+    $("#voice-preference").disabled = true;
+    $("#save-voice-preference").disabled = true;
     $("#setup-panel").hidden = true;
     $("#session-panel").hidden = true;
     $("#completion-panel").hidden = true;
@@ -339,7 +351,14 @@
     setActiveNav(true);
     $("#nav-settings").disabled = false;
     $("#settings-title").focus({ preventScroll: true });
-    try { await refreshSettingsState(); } catch (error) { showToast(error.message, true); }
+    try {
+      await refreshSettingsState();
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      $("#voice-preference").disabled = false;
+      $("#save-voice-preference").disabled = false;
+    }
   }
 
   function showCooking() {
@@ -477,6 +496,26 @@
     }
   }
 
+  async function saveVoicePreference(event) {
+    event.preventDefault();
+    const voiceId = $("#voice-preference").value;
+    setFormError("#voice-preference-error");
+    $("#save-voice-preference").disabled = true;
+    try {
+      const settings = await api("/api/settings/preferences", { method: "PUT", body: JSON.stringify({ voice_id: voiceId }) });
+      state.settings.voice = settings.voice;
+      $("#voice-preference").value = settings.voice?.voice_id || voiceId;
+      setFormError("#voice-preference-error", "Saved for the next voice session.");
+      $("#voice-preference-error").classList.remove("settings-error");
+      $("#voice-preference-error").classList.add("settings-success");
+      setTimeout(() => $("#voice-preference-error").classList.remove("settings-success"), 5000);
+    } catch (error) {
+      setFormError("#voice-preference-error", error.message);
+    } finally {
+      $("#save-voice-preference").disabled = false;
+    }
+  }
+
   async function initializeVault(event) {
     event.preventDefault();
     const passphrase = $("#vault-init-passphrase").value;
@@ -523,6 +562,7 @@
   }
 
   async function lockVault() {
+    stopVoiceCompanion("Voice stopped because AWS settings were locked.");
     $("#vault-lock-button").disabled = true;
     try {
       await post("/api/settings/lock", {});
@@ -638,6 +678,9 @@
 
   function acceptSession(session, options = {}) {
     const previous = state.session;
+    if (previous && (previous.id !== session.id || session.status !== "active")) {
+      stopVoiceCompanion(session.status === "active" ? "Voice stopped because the cooking session changed." : "Voice stopped because the cooking session ended.");
+    }
     if (previous && previous.id === session.id) {
       if (session.revision < previous.revision) return false;
       if (session.revision === previous.revision && session.updated_at < previous.updated_at) return false;
@@ -1055,6 +1098,7 @@
   }
 
   function speak(message) {
+    if (state.companion?.running) return;
     if (!message || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
     if (state.recognition && state.listening) {
       state.restartRecognition = true;
@@ -1077,7 +1121,7 @@
   function setupVoice() {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!Recognition) {
-      $("#voice-support").textContent = "Speech recognition isn’t available in this browser. Text and buttons work just as well.";
+      $("#legacy-voice-support").textContent = "Speech recognition isn’t available in this browser. Text and buttons work just as well.";
       $("#voice-toggle").hidden = true;
       return;
     }
@@ -1086,6 +1130,7 @@
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.onresult = (event) => {
+      if (state.companion?.running) return;
       const transcript = event.results[event.results.length - 1][0].transcript;
       $("#command-input").value = transcript;
       handleCommand(transcript, true);
@@ -1106,10 +1151,89 @@
       }
     };
     state.recognition = recognition;
-    $("#voice-support").textContent = "Voice input uses your browser’s speech service. Camera and microphone are separate permissions.";
+    $("#legacy-voice-support").textContent = "Optional step commands use your browser’s speech service. Microphone permission is separate from the camera.";
+  }
+
+  function renderCompanionTranscript(entries) {
+    const list = $("#voice-transcript");
+    list.replaceChildren();
+    if (!entries.length) {
+      const empty = document.createElement("li");
+      empty.className = "voice-transcript-empty";
+      empty.textContent = "Your conversation appears here while voice is on, then clears when you stop.";
+      list.append(empty);
+      return;
+    }
+    entries.forEach((entry) => {
+      const row = document.createElement("li");
+      row.className = `voice-line ${entry.role}`;
+      const speaker = document.createElement("strong");
+      speaker.textContent = entry.role === "user" ? "You" : "Sous";
+      const text = document.createElement("span");
+      text.textContent = entry.text;
+      row.append(speaker, text);
+      list.append(row);
+    });
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function setCompanionStatus(message, kind = "off") {
+    const status = $("#companion-status");
+    status.textContent = message;
+    status.dataset.state = kind;
+  }
+
+  function setCompanionActive(active) {
+    $("#companion-toggle").textContent = active ? "Stop voice" : "Start voice";
+    $("#companion-toggle").classList.toggle("button-primary", !active);
+    $("#companion-toggle").classList.toggle("button-secondary", active);
+    $("#companion-toggle").setAttribute("aria-pressed", String(active));
+    $("#voice-toggle").disabled = active || !state.recognition;
+    if (active) {
+      if (state.listening && state.recognition) {
+        state.listening = false;
+        state.restartRecognition = false;
+        try { state.recognition.stop(); } catch { /* already stopping */ }
+        $("#voice-toggle").textContent = "Start listening";
+      }
+      window.speechSynthesis?.cancel();
+    }
+  }
+
+  function stopVoiceCompanion(message = "Voice is off. Camera guidance and manual controls work independently.") {
+    state.companion?.stop(message);
+  }
+
+  function setupVoiceCompanion() {
+    state.companion = new window.SousVoiceCompanion({
+      onStatus: setCompanionStatus,
+      onTranscript: renderCompanionTranscript,
+      onClear: () => renderCompanionTranscript([]),
+      onActive: setCompanionActive,
+    });
+    $("#companion-toggle").addEventListener("click", () => {
+      if (state.companion.running) {
+        stopVoiceCompanion();
+        return;
+      }
+      if (!state.session || state.session.status !== "active") {
+        setCompanionStatus("Start a cooking session before starting voice.", "error");
+        return;
+      }
+      if (state.settingsView || document.visibilityState !== "visible") {
+        setCompanionStatus("Return to the visible Cooking view to start voice.", "error");
+        return;
+      }
+      if (state.settings?.vault?.locked || bedrockLockedForSession()) {
+        setCompanionStatus("Unlock AWS settings before starting voice. Text and cooking controls are still available.", "error");
+        return;
+      }
+      state.companion.start(state.session.id, csrfToken, state.settings?.voice);
+    });
   }
 
   async function handleCommand(raw, fromSpeech = false) {
+    if (fromSpeech && state.companion?.running) return;
     const command = raw.trim().toLowerCase().replace(/[.!?]+$/g, "");
     if (!command) return;
     setVoiceMessage(fromSpeech ? `Heard: “${raw.trim()}”` : "");
@@ -1145,6 +1269,7 @@
   }
 
   function cleanupSession() {
+    stopVoiceCompanion("Voice stopped because the cooking session ended.");
     stopCamera();
     cancelObservationRequest();
     clearSettingsSecrets();
@@ -1195,6 +1320,9 @@
     event.preventDefault();
     // Invalidate any permission request or stream belonging to an earlier session.
     stopCamera();
+    stopVoiceCompanion(state.companion?.running
+      ? "Voice stopped because the cooking session changed."
+      : undefined);
     cancelObservationRequest();
     const form = new FormData(event.currentTarget);
     const button = $("#start-session");
@@ -1263,6 +1391,7 @@
     $("#defaults-form").addEventListener("submit", saveDefaults);
     $("#default-provider").addEventListener("change", setModelDefaultProvider);
     $("#interval-form").addEventListener("submit", saveSampleInterval);
+    $("#voice-preference-form").addEventListener("submit", saveVoicePreference);
     $("#next-button").addEventListener("click", () => runAction("next").catch(() => {}));
     $("#back-button").addEventListener("click", () => runAction("back").catch(() => {}));
     $("#finish-button").addEventListener("click", finishCooking);
@@ -1298,6 +1427,7 @@
       handleCommand(command);
     });
     $("#voice-toggle").addEventListener("click", () => {
+      if (state.companion?.running) return;
       if (!state.recognition) return;
       if (state.listening) {
         state.listening = false;
@@ -1330,7 +1460,10 @@
       setConnection("Ready to cook");
     });
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "visible") cancelObservationRequest();
+      if (document.visibilityState !== "visible") {
+        cancelObservationRequest();
+        stopVoiceCompanion("Voice stopped because this tab is hidden.");
+      }
       updateCaptureLoop();
     });
     window.addEventListener("pagehide", cleanupSession, { once: true });
@@ -1338,5 +1471,6 @@
 
   bindEvents();
   setupVoice();
+  setupVoiceCompanion();
   boot();
 })();

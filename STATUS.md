@@ -2,12 +2,28 @@
 
 ## Current
 
-- Phase: secure Bedrock Settings delivered on feature/ui-thinking-dots.
-- Active: Settings-enabled Compose app running at http://127.0.0.1:5050. User configured Bedrock through Settings and verified the desk demo; snapshot interval defaults to 10 seconds.
-- Blockers: none for UI work. User turned Ollama off; use synthetic test responses and defer live inference until final testing.
-- Next checkpoint: user handles push and MR. Opus is independently working on brag-output/; leave its in-progress files untouched.
+- Phase: conversational AWS voice delivered on feature/conversational-voice, branched from pulled main (0cadc7a).
+- Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
+- Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
+- Next checkpoint: push feature/conversational-voice for the user's MR. User unlocks Settings, selects Tiffany/Matthew and starts Voice companion during a recipe. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: Refreshed repository context and fetched origin; no newer remote commits found. User authorized pushing the feature branch. Added root brag-output/ exclusion without changing its files. Fresh unittest discovery passed102 reported tests in13.355s (7 optional skips); all three JavaScript syntax checks and Git whitespace checks passed. Preparing cleanup commit and normal push; no application changes or live AWS/hardware tests.
+
+- 2026-10-19: UI/docs committed48abb26 after verification. Normal Docker Compose rebuilt/recreated successfully with persistent volume retained; root page HTTP200 and loopback5050 running confirmed. Safe metadata shows initialized/locked vault, Nova2Sonic model, Tiffany default and retained5-second snapshot interval. Final screenshot/preference check passed in3.063s; desktop/mobile inspected. No live AWS voice, physical microphone or personal browser used. All application changes committed; brag-output/ untouched.
+
+- 2026-10-19: Final targeted browser/socket run passed15 tests in39.778s (6Settings,7voice,2actual sockets); all14 original non-live browser flows also passed earlier. Two socket cases rechecked after rejection cleanup, then preference/mobile/desktop capture case passed in3.063s after instant-scroll correction. Native synthetic tone exercises real worklet; no microphone/personal browser/AWS. Desktop/mobile screenshots inspected. Linux26 voice tests passed4.096s;2disposable Docker persistence tests passed6.212s, then test stack stopped without deleting volume. Normal app rebuild pending.
+
+- 2026-10-19: Full unit discovery passed102 reported tests in24.803s (7 optional skips) after test-harness corrections. Verified timer acknowledgement race, fresh read-only context, real SDK setup, bounded output-handshake timeout, interleaved content and lingering-stream failclosed behavior. Browser fixtures corrected; original14 non-live cooking/Settings cases passed in current run. New voice cases and actual Flask-Sock integration still running.
+
+- 2026-10-19: Luna completed bounded backend review fixes. Focused voice rerun:26 tests in6.885s,3 errors in new test setup (missing constructor argument, missing fake-stream installation and unqualified name). Root also requested official TOOL contentEnd/TOOL_USE stopReason test shapes and failclosed fake-provider defaults. UI corrections proceed first to preserve single-writer discipline. Independent frontend review found no additional P1/P2 beyond queued fixes.
+
+- 2026-10-19: Linux Docker build succeeded with official streaming SDK/CRT; all20 voice backend tests passed in3.684s. Luna delivered initial UI and synthetic-worklet browser tests. Root interrupted first browser run after finding inconsistent mocked vault metadata prevented microphone startup. Review found timer-ack race, stale voice context and too-short browser playback buffer. Opus follow-up hit session quota after partial constants/persona edits; Luna reviewer is sole writer completing bounded backend fixes. Frontend owner awaits handoff for UI/harness corrections. No user app restart or live AWS call.
+
+- 2026-10-19: Opus (claude-opus-5-5) completed secure voice backend with explicit CRT HTTP/2/static credentials, same-origin/CSRF startup, bounded queues, seven-minute call limit and lock/session teardown. Codex observed 96 tests passing in13.477s (5 optional skips). No live AWS/audio call. Luna owns browser audio/UI; read-only backend review and Linux image dependency build underway.
+
+- 2026-10-19: Pulled main and created feature/conversational-voice. User chose AWS and back-and-forth voice with interruption. Defined docs/voice.md contract and installed official SDK plus CRT transport. Initial sandbox dependency download hit restricted DNS; authorized dependency installation outside sandbox succeeded. No user credentials accessed or live voice call.
 
 - 2026-10-19: User-driven live Bedrock test succeeded with amazon.nova-lite-v1:0. Read-only live-session inspection confirmed automatic advancement from Open palm to Closed fist, followed by a qualifying fist observation at95% confidence (1 of2 confirmations). This verifies real managed Bedrock inference and automatic progression for the desk demo; real cooking accuracy and audio remain unevaluated. No credentials or camera images were accessed by agents. App work committed; brag-output/ remains owned by the separate in-progress Opus task.
 

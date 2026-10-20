@@ -118,4 +118,6 @@ Classes and attributes created by app.js that the stylesheet relies on:
 
 ## Verification
 
+The voice panel has explicit Start/Stop, a status region and bounded temporary conversation text. It explains AWS audio sharing and keeps text/manual controls available. Settings selects the speaking voice independently of the camera model. No microphone starts automatically; Settings, hidden tabs, session end and lock close it. Listening/speaking states use the existing green/blue accents without required motion. See [voice lifecycle](voice.md).
+
 The WebKit suite ([tests/test_browser.py](../tests/test_browser.py)) captures setup, cooking and completion at desktop/mobile sizes under `/private/tmp/sous-webkit-artifacts`, plus `cooking-desktop-viewport.png`. It resets scroll instantly before captures and checks step-column alignment at page top. It asserts there is no horizontal overflow at 1280px and 390px, and that the correct-step form is fully visible and unclipped at both widths. Results are recorded in [Validation evidence](validation.md).

@@ -83,6 +83,8 @@ class VaultTests(SettingsTestCase):
                         "source": data["bedrock"]["source"]},
             "defaults": {"provider": None, "model": None},
             "sample_interval": 10,
+            "voice": {"model": "amazon.nova-2-sonic-v1:0", "voice_id": "tiffany", "available": False,
+                      "reason": "Save an AWS connection in Settings to use voice."},
         })
         self.assertFalse(os.path.exists(self.vault_path))
 

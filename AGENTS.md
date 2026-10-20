@@ -34,6 +34,7 @@ Read CC-Instructions.md before delegating to Claude Code.
 - Recipes are data-driven, loaded from JSON. Scrambled eggs is only the first bundled/default example. Never hardcode its name, step count or cooking cues into UI copy, state logic or model prompts; use selected recipe data. Preserve a recipe snapshot for each session.
 - Validate external inputs and model outputs; preserve manual controls on model failure.
 - Model confidence is heuristic. Camera observations cannot verify food safety.
+- Conversational voice uses AWS Nova 2 Sonic with explicit microphone opt-in and interruption, per docs/voice.md. Keep audio/transcripts ephemeral and use saved encrypted AWS credentials. Stop on navigation/hidden/end/lock. Voice guidance cannot mutate cooking state. No paid voice calls or physical microphone in automated verification.
 - Test state transitions, stale observations, timers, provider mapping/failure, and persistence. Browser-check actual UI behavior.
 - Final delivery includes Dockerfile/Compose, persistent named storage, optional provider env configuration and no host language dependency requirements. No implicit host-credential mounts. Codex verifies Compose/build/run when a Docker daemon is available.
 - Update linked Markdown docs when behavior or interfaces change. Use stable filenames/headings and relative links for later graphing.

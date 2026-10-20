@@ -32,6 +32,8 @@ For a standard Python setup, create `.venv` with `python3 -m venv .venv`, activa
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
+node --check static/voice.js
+node --check static/voice-worklet.js
 ```
 
 Optional browser tests use only an isolated WebKit installation and profile under `/tmp`:
@@ -39,12 +41,22 @@ Optional browser tests use only an isolated WebKit installation and profile unde
 ```sh
 uv pip install -r requirements-dev.txt
 PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit .venv/bin/python -m playwright install webkit
-TMPDIR=/tmp SOUS_BROWSER_TESTS=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit .venv/bin/python -m unittest tests.test_browser -v
+TMPDIR=/tmp SOUS_BROWSER_TESTS=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit .venv/bin/python -m unittest tests.test_browser tests.test_browser_settings tests.test_browser_voice -v
 ```
 
 Add `SOUS_LIVE_OLLAMA=1` and select the optional live test to exercise your existing `qwen3-vl:8b` with generated test frames. The normal browser suite mocks model output and camera permission; it never accesses personal browsers or physical cameras.
 
+`SOUS_VOICE_SOCKET_TESTS=1 .venv/bin/python -m unittest tests.test_voice_socket -v` additionally verifies real localhost WebSockets against a synthetic upstream without calling AWS.
+
 See [validation evidence](docs/validation.md) for observed checks and limitations. The test suite uses mocked model responses; it does not send kitchen images to remote providers.
+
+## Conversational voice
+
+For natural back-and-forth guidance, save and unlock your AWS connection in **Settings**, select Tiffany or Matthew, then explicitly start the **Voice companion** during a recipe. Voice uses Amazon Nova 2 Sonic independently of the camera model. Ask questions naturally; speaking interrupts Sous. Use headphones if speaker audio causes echo.
+
+Your AWS region must support Nova 2 Sonic (`us-east-1`, `us-west-2`, `eu-north-1` or `ap-northeast-1`), with permission for `bedrock:InvokeModel` on `amazon.nova-2-sonic-v1:0`. Existing vision-model access does not guarantee voice access. Voice sends microphone audio to AWS while active and incurs AWS usage charges. Stop it when finished; calls end before the eight-minute service limit and require an explicit restart. See [AWS's API permissions](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModelWithBidirectionalStream.html).
+
+The companion offers guidance using recipe state and recent camera evidence; use buttons or text commands to change steps/timers. It does not continuously see video. Audio and conversational transcripts are not saved by Sous. Settings navigation, a hidden tab, session end or vault locking stops voice. The optional browser voice-command mode remains available when the companion is off. See [voice details](docs/voice.md).
 
 ## Local data and limits
 

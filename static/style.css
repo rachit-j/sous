@@ -334,6 +334,24 @@ input[type=number] { font-variant-numeric: tabular-nums; }
 .lower-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: start; gap: .875rem; margin-top: 1.25rem; }
 .command-form { display: flex; gap: .5rem; margin-top: .875rem; }
 .command-form input { flex: 1; min-width: 0; min-height: 36px; padding: .4375rem .625rem; font-size: .875rem; }
+.voice-companion-status { margin: .75rem 0 0; color: var(--ink-3); font-size: .8125rem; line-height: 1.45; }
+.voice-companion-status[data-state="listening"] { color: var(--green-ink); }
+.voice-companion-status[data-state="speaking"] { color: var(--blue-ink); }
+.voice-companion-status[data-state="connecting"] { color: var(--amber-ink); }
+.voice-companion-status[data-state="error"] { color: var(--red); }
+.voice-mic-note { margin: .35rem 0 0; color: var(--ink-4); font-size: .75rem; line-height: 1.4; }
+.voice-transcript { display: grid; gap: .625rem; max-height: 240px; overflow: auto; margin: .875rem 0 0; padding: .75rem; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--bg); list-style: none; }
+.voice-transcript-empty { color: var(--ink-4); font-size: .8125rem; line-height: 1.45; }
+.voice-line { display: grid; gap: .2rem; min-width: 0; font-size: .875rem; line-height: 1.45; }
+.voice-line strong { color: var(--ink-3); font-size: .75rem; font-weight: 650; }
+.voice-line span { color: var(--ink-2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.voice-line.assistant { padding-left: .625rem; border-left: 2px solid var(--blue); }
+.voice-line.user { padding-left: .625rem; border-left: 2px solid var(--line-strong); }
+.voice-fallback { margin-top: 1rem; padding-top: .875rem; border-top: 1px solid var(--line); }
+.voice-fallback h3 { margin: 0; color: var(--ink-2); font-size: .8125rem; font-weight: 650; }
+.voice-fallback > p { margin: .25rem 0 0; color: var(--ink-4); font-size: .75rem; }
+.legacy-voice-controls { display: flex; align-items: center; gap: .625rem; margin-top: .5rem; }
+.legacy-voice-controls .voice-message { margin: 0; }
 .event-list { display: grid; max-height: 232px; overflow: auto; margin: .75rem 0 0; padding: 0; list-style: none; }
 .event-list li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .75rem; padding: .5rem 0; border-top: 1px solid var(--line); }
 .event-list time { color: var(--ink-4); font-size: .8125rem; font-variant-numeric: tabular-nums; }

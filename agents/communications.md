@@ -2,6 +2,24 @@
 
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
+## Repository handoff — 2026-10-20
+
+User authorized ignoring local brag-output/ and pushing all relevant feature work for their MR. Codex refreshed project context and remote refs: feature/conversational-voice is five commits ahead of origin/main with no remote divergence or other application edits. Root-only housekeeping adds the ignore rule and records this handoff; no application implementation delegated. Fresh unit discovery passed102 reported tests (7 optional skips); JavaScript syntax and whitespace checks passed. Preserve generated brag files locally; push only this feature branch, without opening or merging an MR.
+
+## Conversational voice — 2026-10-19
+
+Final integration: root committed UI/docs48abb26, rebuilt normal Compose on5050 and confirmed HTTP200 plus safe locked-vault/voice metadata. User data retained; test stack stopped with its volume retained. All implementation writers finished. Real AWS audio/hardware trial is user-driven after unlock. Root leaves brag-output/ untracked/untouched and does not push or open an MR.
+
+UI handoff verified:15 Settings/voice/socket checks passed, then final changed capture/socket checks passed. Root inspected desktop/mobile images and confirmed neutral offstatus, generic recipe presentation and intact controls. Browser test uses native generated tone at source boundary, actual worklet/PCM/playback and mock cloud. Strict origin checks retained; test-only port-aware socket client corrects its Host header. No further agent writes pending. Root owns final commit/rebuild/healthcheck.
+
+Backend fixes verified:102 reported unit tests passed,7optional skips. New tool is strictly read-only, requests fresh context on request thread and uses official TOOL/TOOL_USE completion shape; aborted tool blocks do not execute. Test default fails closed instead of opening AWS. Timer watcher independently tracks deadline crossing; AWS output handshake precedes ready; lingering bridge blocks replacement. UI owner delivered backlog/status/resampler/cleanup fixes and corrected deterministic socket-error fixture assertion. Root is running isolated browser and actual localhost socket integration checks.
+
+Review-fix handoff: Claude follow-up hit session quota (not authentication/permission failure), leaving only voice.py constants/persona/new_state additions; inspected before recovery. Luna voice_review takes over ONLY voice.py/tests/test_voice.py for timerack race, read-only fresh-context tool, output-handshake timeout and failclosed lingering bridge. Luna voice_ui waits read-only, then fixes mocked unlocked metadata, audio backlog/WS backpressure/status/handshake cleanup/resampler checks and actual WebSocket integration tests. One writer at a time continues.
+
+Backend return: Opus implemented voice.py, app integration, SDK/Flask-Sock dependencies, Docker eight-thread runtime and tests. Codex observed96 tests passing,5optional skips. Protocol matches docs/voice.md; speculative assistant text uses final:false and final spoken text final:true, so UI replaces rather than duplicates. Root queued review of timer-ack race and latest-context freshness. Luna is now sole frontend writer, reviewer read-only on backend; fixes wait until writer returns. Root began disposable Linux image build, no user app restart yet.
+
+Root pulled main (0cadc7a) and created feature/conversational-voice, preserving untracked brag-output/. User chose AWS and back-and-forth speech with interruption. Contract: [voice](../docs/voice.md). Opus is sole backend writer; Luna completed read-only UI planning and awaits backend handoff. Root owns docs, verification, integration and commits. SDK0.12.0 requires explicit AWS CRT duplex transport; its default aiohttp transport cannot stream both directions. Official SDK/CRT development dependencies installed. No live AWS call or physical microphone testing by agents.
+
 ## Shared decisions
 
 - Read [AGENTS.md](../AGENTS.md), [PLAN.md](../PLAN.md), and [API contract](../docs/api.md).

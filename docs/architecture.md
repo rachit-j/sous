@@ -19,6 +19,9 @@ flowchart LR
   Check --> DB
   DB --> UI
   UI --> Audio[Spoken updates]
+  UI <-->|Opt-in microphone and spoken audio| Voice[Flask WebSocket bridge]
+  DB -->|Read-only recipe context| Voice
+  Voice <--> Sonic[AWS Nova 2 Sonic]
 ```
 
 ## Human control and concurrency
@@ -29,11 +32,13 @@ Each session saves a recipe snapshot. Config edits apply to new sessions; ongoin
 
 Only one model request per session runs at once. Network calls happen outside SQLite transactions; state is checked again before applying the result. This MVP uses one server process and one active browser tab. A distributed worker/multi-user system would require a different concurrency mechanism.
 
-The Docker image uses one Gunicorn worker with four threads, so manual controls can be served during model calls while the per-process monitoring lock remains valid. The app runs as a non-root user and keeps SQLite and its signing secret in a named volume. See [Docker setup](docker.md).
+The Docker image uses one Gunicorn worker with eight threads, so manual controls can be served during model calls and a voice WebSocket while per-process locks remain valid. Voice is capped at one active stream and two authenticating sockets. The app runs as a non-root user and keeps SQLite and its signing secret in a named volume. See [Docker setup](docker.md).
 
 Mode changes and pauses reset completion evidence. Reloading or restarting pauses monitoring until the user resumes. Final completion always requires the cook's confirmation. Timers have absolute deadlines and are independent of recipe advancement; ending a session cancels its timer.
 
 ## Privacy and failure behavior
+
+The [voice companion](voice.md) is a separate duplex stream from visual monitoring. The server supplies recipe context and recent evidence; voice never writes cooking state. Microphone capture is explicit and stops on navigation, hidden tabs, end, lock or disconnect. Audio and conversational transcripts remain ephemeral. The existing encrypted AWS connection supplies a static credential snapshot; the stream must also check that connection remains unlocked and unchanged.
 
 No frame or audio persistence. SQLite retains normalized observations and action/correction events. Provider failures are sanitized before displaying/logging; manual actions and timers remain available. Camera permission and optional speech can fail without preventing manual use.
 

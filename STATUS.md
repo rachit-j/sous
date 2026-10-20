@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: conversational AWS voice on feature/conversational-voice, branched from pulled main (0cadc7a).
-- Active: backend, browser voice, real localhost WebSocket and disposable Docker checks passed. Desktop/mobile captures inspected. Final UI commit and normal Compose rebuild are next; existing app remains at http://127.0.0.1:5050 until rebuilt.
-- Blockers: Claude hit its session usage limit during review fixes (reset9:10pm America/New_York), not a permission failure. Luna takes over; no need for additional permissions. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
-- Next checkpoint: commit verified UI/docs, rebuild normal Compose with persistent data retained, inspect safe health/voice metadata. User then unlocks Settings and trials real AWS audio. Preserve unrelated brag-output/.
+- Phase: conversational AWS voice delivered on feature/conversational-voice, branched from pulled main (0cadc7a).
+- Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
+- Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
+- Next checkpoint: user unlocks Settings, selects Tiffany/Matthew and starts Voice companion during a recipe. Branch ready for user push/MR; unrelated brag-output/ remains untouched and untracked.
 
 ## Milestones
+
+- 2026-10-19: UI/docs committed48abb26 after verification. Normal Docker Compose rebuilt/recreated successfully with persistent volume retained; root page HTTP200 and loopback5050 running confirmed. Safe metadata shows initialized/locked vault, Nova2Sonic model, Tiffany default and retained5-second snapshot interval. Final screenshot/preference check passed in3.063s; desktop/mobile inspected. No live AWS voice, physical microphone or personal browser used. All application changes committed; brag-output/ untouched.
 
 - 2026-10-19: Final targeted browser/socket run passed15 tests in39.778s (6Settings,7voice,2actual sockets); all14 original non-live browser flows also passed earlier. Two socket cases rechecked after rejection cleanup, then preference/mobile/desktop capture case passed in3.063s after instant-scroll correction. Native synthetic tone exercises real worklet; no microphone/personal browser/AWS. Desktop/mobile screenshots inspected. Linux26 voice tests passed4.096s;2disposable Docker persistence tests passed6.212s, then test stack stopped without deleting volume. Normal app rebuild pending.
 

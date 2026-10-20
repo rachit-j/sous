@@ -4,6 +4,8 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 
 ## Conversational voice — 2026-10-19
 
+Final integration: root committed UI/docs48abb26, rebuilt normal Compose on5050 and confirmed HTTP200 plus safe locked-vault/voice metadata. User data retained; test stack stopped with its volume retained. All implementation writers finished. Real AWS audio/hardware trial is user-driven after unlock. Root leaves brag-output/ untracked/untouched and does not push or open an MR.
+
 UI handoff verified:15 Settings/voice/socket checks passed, then final changed capture/socket checks passed. Root inspected desktop/mobile images and confirmed neutral offstatus, generic recipe presentation and intact controls. Browser test uses native generated tone at source boundary, actual worklet/PCM/playback and mock cloud. Strict origin checks retained; test-only port-aware socket client corrects its Host header. No further agent writes pending. Root owns final commit/rebuild/healthcheck.
 
 Backend fixes verified:102 reported unit tests passed,7optional skips. New tool is strictly read-only, requests fresh context on request thread and uses official TOOL/TOOL_USE completion shape; aborted tool blocks do not execute. Test default fails closed instead of opening AWS. Timer watcher independently tracks deadline crossing; AWS output handshake precedes ready; lingering bridge blocks replacement. UI owner delivered backlog/status/resampler/cleanup fixes and corrected deterministic socket-error fixture assertion. Root is running isolated browser and actual localhost socket integration checks.

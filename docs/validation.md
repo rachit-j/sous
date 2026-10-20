@@ -2,9 +2,11 @@
 
 ## Current state
 
-V2 implementation and automated checks passed on feature/v2; see [status](../STATUS.md) for local runtime delivery. Earlier V1 evidence below is historical. User-driven V1 Bedrock desk-demo inference does not establish V2 live-model quality. Audible quality, physical-device behavior and cooking accuracy remain manual checks.
+V2 implementation and automated checks passed on feature/v2. The updated Docker app runs on localhost5050 with the existing volume retained and first-administrator setup available; see [status](../STATUS.md). Earlier V1 evidence below is historical. User-driven V1 Bedrock desk-demo inference does not establish V2 live-model quality. Audible quality, physical-device behavior and cooking accuracy remain manual checks.
 
 ## Observed checks
+
+- V2 normal runtime delivery: final image rebuilt; Compose recreated successfully, running on127.0.0.1:5050 with its existing named volume. Public auth metadata returned setup_required=true and no authenticated account. Root app shell and static V2 script returned HTTP200. Legacy V1 data/vault were not assigned, decrypted or deleted. User creates new accounts and supplies AWS through Settings; no live AWS call was made during delivery.
 
 - V2 final browser run:26reported tests101.923s,25passed and1optional live Ollama skip. Real account APIs verify two-user recipe privacy, media cleanup, preparation persistence, named timer cancellation, advisory evidence/acknowledgment and private history-note reload. Fixture tests verify reviewed AI drafts/save/immediate cook, global copy permissions, named timer expiry across navigation, single polling, delayed signout and late JSON-response isolation. All original cooking, Settings and synthetic voice scenarios passed after the session lifecycle and voice status fixes. Desktop/mobile cooking, auth, recipes and editor captures inspected; JavaScript syntax and whitespace checks passed. Independent final review found no actionable P1/P2 in signout/media/request and alert/voice boundaries.
 

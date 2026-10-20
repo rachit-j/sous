@@ -1,5 +1,9 @@
 # Agent communication log
 
+## V2 local delivery
+
+Root committed backend/account/library/tools, Docker fixture and UI milestones, then rebuilt the final image and recreated only normal Compose without volume removal. It serves V2 on loopback5050 and requires first-admin setup. Original V1 data and vault remain unclaimed; new users must configure their own AWS. Reserved5051 stack is stopped and its volume retained. Public startup/asset checks and all required automated verification passed; live AWS, physical camera/mic and cooking accuracy remain user trials. TestFlight/native explicitly deferred. No push; ignored brag-output/ unchanged. See STATUS.md and docs/validation.md for evidence.
+
 ## V2.3 backend and UI integration
 
 Final handoff: root found that createSession assigned core state without dispatching V2's session event, leaving preparation/timers empty until another action. Luna routed creation through acceptSession and added explicit null-session cleanup. The real tool flow passed5.254s, then the complete isolated WebKit suite passed26reported tests101.923s (25executed,1optional live Ollama skip). Voice navigation reason and new-test disclosure/request synchronization are corrected without removing assertions. Independent Luna final read-only review found no remaining actionable P1/P2. Container/Linux/socket evidence is recorded in docs/validation.md; root proceeds to verified UI commit and local normal-stack update, preserving all data. No external push or native work.

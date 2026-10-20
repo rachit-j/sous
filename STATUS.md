@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2 implementation, independent review and automated verification passed on feature/v2; local runtime update next.
-- Active: normal V1 Compose stack/data on5050 remains preserved pending the V2 update. Disposable5051 verification stack is stopped with its volume retained.
-- Blockers: no external permission/authentication blocker. V2 remains under implementation and requires full integration/browser/container verification before delivery. Real AI/audio quality remains for the user's live trial.
-- Next checkpoint: commit the verified UI, update normal Compose with its existing volume, check public startup metadata, and finish delivery documentation. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
+- Phase: V2 implemented, independently reviewed, verified and committed on feature/v2.
+- Active: updated Docker app runs at http://127.0.0.1:5050 with its existing named volume retained. First-administrator setup is required. V1 data/original vault remain unclaimed; each new account supplies its own AWS connection. Disposable5051 verification stack is stopped with its volume retained.
+- Blockers: none for local delivery. Real V2 AI/audio quality and physical-device behavior remain for the user's live trial; automated checks used synthetic inputs.
+- Next checkpoint: user creates the first administrator and configures account-owned AWS in Settings, then reviews/pushes the branch when ready. No agent push. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
 
 ## Milestones
+
+- 2026-10-20: V2 local delivery image rebuilt and normal Compose recreated successfully with existing sous_sous-instance storage retained. Public /api/auth confirms setup_required=true/authenticated=false; container is running and published only127.0.0.1:5050. No accounts, real credentials or private records were read/created by agents in the normal volume. All V2 slices complete; UI milestone a2824ba, preceding backend/test commits preserved. No external push or native/TestFlight work.
 
 - 2026-10-20: Final isolated WebKit run passed26reported cases101.923s (25executed,1optional live Ollama skip). Includes real two-user account/library/media cleanup, checklist/timer/advisory/history persistence, reviewed generation and immediate cook, late JSON-response signout protection, all original cooking/Settings/voice flows and desktop/390px overflow checks. Root found/fixed missing new-session tool lifecycle dispatch; real tool flow passed5.254s before final suite. Desktop/mobile screenshots inspected. Independent Luna final review found no remaining actionable P1/P2. Linux167reported tests36.245s (11optional skips),3Docker persistence cases9.584s and3actual socket cases2.575s passed. No paid AWS/physical devices; disposable stack stopped without volume deletion.
 

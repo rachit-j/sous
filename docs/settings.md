@@ -44,6 +44,12 @@ Backend implementation in `settings.py` (vault) and `app.py` (routes). These ref
 
 ## UI contract
 
+### Voice preferences
+
+GET `/api/settings` also returns `voice: {model, voice_id, available, reason?}`. Model is `amazon.nova-2-sonic-v1:0`; voice is `tiffany` by default or `matthew`. Availability requires an unlocked saved AWS connection in a supported region; this checks local configuration only, not live AWS access. Unsupported regions additionally return `supported_regions`.
+
+PUT `/api/settings/preferences` accepts `voice_id` and/or `sample_interval`, rejects unknown/empty fields, and validates all supplied values before saving. Voice preference can be saved while locked and applies to the next explicit voice start. It never opens the microphone. Voice uses the saved AWS connection independently of the selected camera model; see [conversational voice](voice.md).
+
 Shared Cooking/Settings navigation switches internal views without reloading the cooking session. Leaving Cooking explicitly pauses guidance/cancels capture so camera images are not submitted while Settings is visible; returning keeps it paused until explicit resume. Setup shows a compact provider/model summary with a Settings link; existing provider/model controls can live in a disclosure for per-session overrides, preserving their IDs and generic recipe behavior. Settings contains initialize/unlock/lock controls, Bedrock connection form, discovered-model picker plus custom ID, and saved default provider/model. Do not imply saving credentials verifies AWS access. No real secrets in screenshots/tests, and no browser localStorage/sessionStorage for settings secrets.
 
 ## Verification

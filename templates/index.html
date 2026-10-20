@@ -8,6 +8,7 @@
   <link rel="icon" href="data:,">
   <title>Sous — Cooking workspace</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='voice.js') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
@@ -137,6 +138,15 @@
           <button class="button button-secondary" id="save-interval" type="submit">Save interval</button>
         </form>
       </section>
+
+      <section class="settings-section panel" aria-labelledby="voice-preference-heading">
+        <div class="settings-section-head"><div><h2 id="voice-preference-heading">Conversational voice</h2><p id="voice-preference-summary">Amazon Nova 2 Sonic, independent of the camera guidance model. Choose the voice used when you start the companion.</p></div></div>
+        <form id="voice-preference-form" class="settings-form interval-form">
+          <div class="field"><label for="voice-preference">Speaking voice</label><select id="voice-preference" required><option value="tiffany">Tiffany</option><option value="matthew">Matthew</option></select></div>
+          <p id="voice-preference-error" class="settings-error" role="status" hidden></p>
+          <button class="button button-secondary" id="save-voice-preference" type="submit">Save voice</button>
+        </form>
+      </section>
     </section>
 
     <section id="session-panel" class="session-panel" hidden aria-label="Cooking session">
@@ -241,9 +251,16 @@
 
       <div class="lower-workspace">
         <section class="panel voice-panel" id="voice-panel" aria-labelledby="voice-heading">
-          <div class="panel-head"><div><h2 id="voice-heading">Voice and text commands</h2><p id="voice-support">Buttons and text work in every browser.</p></div><button class="button button-secondary button-small" id="voice-toggle" type="button">Start listening</button></div>
-          <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-secondary button-small" type="submit">Send</button></form>
-          <p id="voice-message" class="voice-message" role="status"></p>
+          <div class="panel-head"><div><h2 id="voice-heading">Voice companion</h2><p id="voice-support">Ask questions about this recipe and current step.</p></div><button class="button button-primary button-small" id="companion-toggle" type="button" aria-pressed="false">Start voice</button></div>
+          <p class="voice-companion-status" id="companion-status" role="status" aria-live="polite">Voice is off. Camera guidance and manual controls work independently.</p>
+          <p class="voice-mic-note">While voice is on, microphone audio streams to AWS Nova 2 Sonic and isn’t saved by Sous. AWS charges may apply. Headphones help reduce echo.</p>
+          <ol class="voice-transcript" id="voice-transcript" aria-label="Temporary voice conversation" aria-live="polite" aria-relevant="additions text"><li class="voice-transcript-empty">Your conversation appears here while voice is on, then clears when you stop.</li></ol>
+          <div class="voice-fallback">
+            <h3>Text and step commands</h3>
+            <p id="legacy-voice-support">Buttons and text work in every browser.</p>
+            <div class="legacy-voice-controls"><button class="button button-secondary button-small" id="voice-toggle" type="button">Start listening</button><span id="voice-message" class="voice-message" role="status"></span></div>
+            <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-secondary button-small" type="submit">Send</button></form>
+          </div>
         </section>
 
         <section class="panel event-panel" aria-labelledby="event-heading">

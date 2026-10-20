@@ -3,11 +3,13 @@
 ## Current
 
 - Phase: conversational AWS voice on feature/conversational-voice, branched from pulled main (0cadc7a).
-- Active: backend review fixes verified; full unit suite passed102 reported tests (7 optional skips). Browser regression and real localhost WebSocket tests underway; all14 original non-live UI cases passed before new voice cases. Existing Compose app remains at http://127.0.0.1:5050.
+- Active: backend, browser voice, real localhost WebSocket and disposable Docker checks passed. Desktop/mobile captures inspected. Final UI commit and normal Compose rebuild are next; existing app remains at http://127.0.0.1:5050 until rebuilt.
 - Blockers: Claude hit its session usage limit during review fixes (reset9:10pm America/New_York), not a permission failure. Luna takes over; no need for additional permissions. Synthetic voice tests only; no physical microphone, personal browser or paid AWS calls by agents.
-- Next checkpoint: backend verification/commit, then Luna UI and isolated WebKit/Docker verification. Preserve unrelated brag-output/.
+- Next checkpoint: commit verified UI/docs, rebuild normal Compose with persistent data retained, inspect safe health/voice metadata. User then unlocks Settings and trials real AWS audio. Preserve unrelated brag-output/.
 
 ## Milestones
+
+- 2026-10-19: Final targeted browser/socket run passed15 tests in39.778s (6Settings,7voice,2actual sockets); all14 original non-live browser flows also passed earlier. Two socket cases rechecked after rejection cleanup, then preference/mobile/desktop capture case passed in3.063s after instant-scroll correction. Native synthetic tone exercises real worklet; no microphone/personal browser/AWS. Desktop/mobile screenshots inspected. Linux26 voice tests passed4.096s;2disposable Docker persistence tests passed6.212s, then test stack stopped without deleting volume. Normal app rebuild pending.
 
 - 2026-10-19: Full unit discovery passed102 reported tests in24.803s (7 optional skips) after test-harness corrections. Verified timer acknowledgement race, fresh read-only context, real SDK setup, bounded output-handshake timeout, interleaved content and lingering-stream failclosed behavior. Browser fixtures corrected; original14 non-live cooking/Settings cases passed in current run. New voice cases and actual Flask-Sock integration still running.
 

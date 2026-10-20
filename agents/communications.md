@@ -1,5 +1,9 @@
 # Agent communication log
 
+## Local sign-in recovery
+
+User explicitly requested reset of their named sign-in account. Opus added a local Flask CLI, without an HTTP bypass, using generated passwords only in exclusive0600 files. Luna independently reviewed target isolation, failure cleanup and secret handling. Root observed23recovery/account tests13.444s and5Linux recovery tests2.769s pass, then performed the authorized offline reset in normal Compose. All target logins revoked, persistent data/vault preserved; generated password copied into a private host file without agent inspection, ephemeral recovery container removed, app restarted. No credential contents/paths are committed. User receives a local file link and chooses their own password in Settings.
+
 ## V2 local delivery
 
 Root committed backend/account/library/tools, Docker fixture and UI milestones, then rebuilt the final image and recreated only normal Compose without volume removal. It serves V2 on loopback5050 and requires first-admin setup. Original V1 data and vault remain unclaimed; new users must configure their own AWS. Reserved5051 stack is stopped and its volume retained. Public startup/asset checks and all required automated verification passed; live AWS, physical camera/mic and cooking accuracy remain user trials. TestFlight/native explicitly deferred. No push; ignored brag-output/ unchanged. See STATUS.md and docs/validation.md for evidence.

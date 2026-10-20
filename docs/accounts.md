@@ -16,6 +16,23 @@ Account-facing cloud calls never fall back to environment AWS keys or another ac
 
 Change your password in Settings using the current password. Administrators can reset an account password for the trusted group. Changing/resetting a password revokes affected sessions and locks the vault; it does not rewrite the independent encrypted vault. A stolen old cookie must not become valid after logout/reset.
 
+### Local owner recovery
+
+If no administrator can sign in, an operator with access to the Docker host can use the local `reset-password` command. It creates a random password in a new file with0600 permissions, resets only the named account and revokes all its sign-in sessions. It never displays the password in terminal output. There is no unauthenticated HTTP recovery endpoint.
+
+Stop the app while recovering so the running process releases unlocked vaults and pending work. Keep the named volume. From the project root, choose an unused recovery-container name:
+
+```sh
+recovery_dir="$(mktemp -d)"
+docker compose stop sous
+docker compose run --name sous-account-recovery --no-deps sous flask --app app reset-password YOUR_USERNAME --password-file /tmp/new-password.txt
+docker cp sous-account-recovery:/tmp/new-password.txt "$recovery_dir/password.txt"
+docker rm sous-account-recovery
+docker compose up -d sous
+```
+
+Open the private `password.txt` file locally, sign in, then choose your own password in Settings and delete the temporary file. Never commit or share it. Existing output files are refused; unknown usernames do not create accounts. This recovers sign-in access only; your AWS vault still requires its original passphrase.
+
 ## Existing V1 data
 
 V2 adds ownership without assigning old single-user records to the first new account. Existing sessions/events/observations and the original settings.vault stay on disk but are not exposed through account APIs. Create your account and save your connection anew. This avoids silently granting legacy data to whoever completes setup. A deliberate import flow is separate future work; retain the data volume and its backup.

@@ -173,6 +173,7 @@ def create_app(test_config=None):
     register_routes(app)
     accounts.register_routes(app, get_db, transaction, json_body,
                              lambda user_id: lock_user_vault(app, user_id))
+    accounts.register_cli(app, get_db, transaction, lambda user_id: lock_user_vault(app, user_id))
     register_settings_routes(app)
     register_library_routes(app)
     register_cooking_routes(app)

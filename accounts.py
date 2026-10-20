@@ -8,11 +8,13 @@ supply identity. Login, password and account bodies are never logged or echoed.
 
 import collections
 import hashlib
+import os
 import re
 import secrets
 import sqlite3
 import threading
 
+import click
 from flask import current_app, g, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -383,3 +385,79 @@ def register_routes(app, get_db, transaction, json_body, lock_vault):
                        (user_id, admin_token))
         lock_vault(user_id)
         return jsonify(user=public_user(row))
+
+
+# --- Offline recovery ------------------------------------------------------
+
+def remove_created(path, created):
+    """Remove the password file only while path is still the file this invocation created."""
+    try:
+        st = os.lstat(path)
+        if (st.st_dev, st.st_ino) == created:
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+def register_cli(app, get_db, transaction, lock_vault):
+    """`flask --app app reset-password USERNAME --password-file PATH`, for a forgotten sign-in password.
+
+    Run while the service is stopped. The new password is generated here and written only to a new
+    0600 file; it and its hash are never printed. Every login of the account is revoked and its
+    vault (whose passphrase is separate) is locked in this process.
+    """
+
+    @app.cli.command("reset-password")
+    @click.argument("username")
+    @click.option("--password-file", required=True, type=click.Path(dir_okay=False),
+                  help="New file to receive the generated password; existing paths are refused.")
+    def reset_password_command(username, password_file):
+        try:
+            name = validate_username(username)
+        except AccountError as exc:
+            raise click.ClickException(exc.message) from None
+        db = get_db()
+        row = db.execute("SELECT id FROM users WHERE username = ?", (name,)).fetchone()
+        if row is None:
+            raise click.ClickException("Account not found.")
+        user_id = row["id"]
+        password = secrets.token_urlsafe(24)
+        try:
+            password_hash = generate_password_hash(password)
+        except Exception:
+            raise click.ClickException("Password reset failed; the password was not changed.") from None
+
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(password_file, flags, 0o600)  # O_EXCL: never an existing file or symlink
+        except FileExistsError:
+            raise click.ClickException("The password file already exists; choose a new path.") from None
+        except OSError:
+            raise click.ClickException("Could not create the password file.") from None
+        created = None
+        try:
+            st = os.fstat(fd)
+            created = (st.st_dev, st.st_ino)
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                fd = None
+                fh.write(password + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            with transaction(db):
+                changed = db.execute("UPDATE users SET password_hash = ? WHERE id = ? AND username = ?",
+                                     (password_hash, user_id, name)).rowcount
+                if changed != 1:
+                    raise AccountError(404, "Account not found.")
+                db.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        except BaseException as exc:
+            if fd is not None:
+                os.close(fd)
+            if created is not None:
+                remove_created(password_file, created)
+            if isinstance(exc, Exception):
+                raise click.ClickException("Password reset failed; the password was not changed.") from None
+            raise
+        lock_vault(user_id)
+        click.echo("Password reset. All sign-in sessions revoked.")
+        click.echo(f"New password written to {password_file}.")

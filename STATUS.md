@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2 implemented, independently reviewed, verified and committed on feature/v2.
-- Active: updated Docker app runs at http://127.0.0.1:5050 with its existing named volume retained. First-administrator setup is required. V1 data/original vault remain unclaimed; each new account supplies its own AWS connection. Disposable5051 verification stack is stopped with its volume retained.
+- Phase: V2 delivered; local owner password recovery verified and the authorized sign-in reset completed.
+- Active: updated Docker app runs at http://127.0.0.1:5050 with its existing named volume retained. Sign-in is available after recovery. V1 data/original vault remain unclaimed; each account supplies its own AWS connection. Disposable5051 verification stack is stopped with its volume retained.
 - Blockers: none for local delivery. Real V2 AI/audio quality and physical-device behavior remain for the user's live trial; automated checks used synthetic inputs.
-- Next checkpoint: user creates the first administrator and configures account-owned AWS in Settings, then reviews/pushes the branch when ready. No agent push. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
+- Next checkpoint: user signs in with the private recovery file, changes their password in Settings and deletes the temporary file. No credentials in chat/logs/Git and no changes to AWS vault ciphertext. No agent push. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
 
 ## Milestones
+
+- 2026-10-20: Added local-only reset-password CLI with exclusive0600 password-file output, target-only reset/session revocation and unchanged vault ciphertext. Opus implemented; Luna review found no actionable issue. Host recovery/account tests passed23cases13.444s; Linux recovery tests passed5cases2.769s. Root stopped normal app, reset only the explicitly requested account, copied the generated password to a private local file without reading/printing it, removed the ephemeral recovery container and restarted normal Compose with the volume retained. Public auth health passed; user changes password through Settings next.
 
 - 2026-10-20: V2 local delivery image rebuilt and normal Compose recreated successfully with existing sous_sous-instance storage retained. Public /api/auth confirms setup_required=true/authenticated=false; container is running and published only127.0.0.1:5050. No accounts, real credentials or private records were read/created by agents in the normal volume. All V2 slices complete; UI milestone a2824ba, preceding backend/test commits preserved. No external push or native/TestFlight work.
 

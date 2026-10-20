@@ -18,8 +18,11 @@ from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
 
 import accounts
+import library
+import recipe_ai
 import voice
 from accounts import AccountError, csrf_token
+from library import LibraryError
 from recipes import load_recipes
 from settings import BedrockConnection, SettingsError, Vault, merge_bedrock, validate_model_id
 
@@ -149,12 +152,14 @@ def create_app(test_config=None):
     app.extensions["sous_discovery"] = threading.Lock()
     # One voice stream instance-wide for this private release; tests may replace "open_stream".
     app.extensions["sous_voice"] = voice.new_state()
+    app.extensions["sous_generation"] = recipe_ai.Limiter(app.config["CLOCK"])
 
     init_db(app.config["DATABASE"], app.config["CLOCK"](), app.extensions["sous_recipes"])
     app.teardown_appcontext(close_db)
     app.register_error_handler(ApiError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(SettingsError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(AccountError, lambda e: (jsonify(error=e.message), e.status))
+    app.register_error_handler(LibraryError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
     app.register_error_handler(Exception, unexpected_error)
     app.before_request(check_origin_and_csrf)
@@ -164,6 +169,7 @@ def create_app(test_config=None):
     accounts.register_routes(app, get_db, transaction, json_body,
                              lambda user_id: lock_user_vault(app, user_id))
     register_settings_routes(app)
+    register_library_routes(app)
     register_voice_routes(app, Sock(app))
     return app
 
@@ -225,6 +231,7 @@ def init_db(path, now, recipes):
     try:
         db.executescript(SCHEMA)
         db.executescript(accounts.SCHEMA)
+        db.executescript(library.SCHEMA)
         columns = {r["name"] for r in db.execute("PRAGMA table_info(sessions)")}
         if "recipe_snapshot" not in columns:
             db.execute("ALTER TABLE sessions ADD COLUMN recipe_snapshot TEXT")
@@ -339,8 +346,14 @@ def recipe_for_session(row):
     return json.loads(row["recipe_snapshot"])
 
 
-def current_recipes():
+def bundled_recipes():
+    """Read-only recipes/*.json, shared by every account."""
     return current_app.extensions["sous_recipes"]
+
+
+def current_recipes():
+    """{id: recipe} the signed-in account may cook: bundled first, then visible library recipes."""
+    return library.cookable(get_db(), g.user, bundled_recipes())
 
 
 def respond_session(session_id, user_id, status=200):
@@ -358,8 +371,9 @@ def http_error(exc):
 
 
 def unexpected_error(exc):
-    if request.path.startswith(("/api/settings", "/api/auth", "/api/users")):
-        # No traceback: exception text or frames could carry submitted credentials or passwords.
+    if request.path.startswith(("/api/settings", "/api/auth", "/api/users", "/api/recipes", "/api/profile")):
+        # No traceback: exception text or frames could carry submitted credentials, passwords,
+        # recipe requests or model output.
         current_app.logger.error("Unhandled error in %s request: %s", request.path.split("/")[2],
                                  type(exc).__name__)
     else:
@@ -419,6 +433,15 @@ def json_body():
     if not isinstance(body, dict):
         raise ApiError(400, "Request body must be a JSON object.")
     return body
+
+
+def limited_body(limit):
+    """json_body with a strict byte budget, also for bodies sent without Content-Length."""
+    if request.content_length is not None and request.content_length > limit:
+        raise ApiError(413, "Request is too large.")
+    if len(request.get_data(cache=True)) > limit:
+        raise ApiError(413, "Request is too large.")
+    return json_body()
 
 
 def is_int(value):
@@ -780,9 +803,9 @@ def register_routes(app):
             raise ApiError(400, "Sessions always belong to the signed-in account.")
         recipe_id, provider = body.get("recipe_id"), body.get("provider")
         model, mode = body.get("model"), body.get("mode")
-        if not isinstance(recipe_id, str) or recipe_id not in current_recipes():
+        recipe = current_recipes().get(recipe_id) if isinstance(recipe_id, str) else None
+        if recipe is None:  # also another account's, or a deleted library recipe
             raise ApiError(400, "Unknown recipe.")
-        recipe = current_recipes()[recipe_id]
         catalog = {p["id"]: p for p in provider_catalog(get_db(), user_id)}
         if not isinstance(provider, str) or provider not in catalog:
             raise ApiError(400, "Unknown provider.")
@@ -1005,6 +1028,116 @@ def register_settings_routes(app):
         finally:
             guard.release()
         return jsonify(result)
+
+
+NO_AI_CONNECTION = "Save your own AWS connection in Settings to use the recipe maker."
+LOCKED_AI = "Unlock your AWS connection in Settings to use the recipe maker."
+
+
+def register_library_routes(app):
+    """Recipe library, profile, serving drafts and AI drafts (docs/v2-api.md). The caller's
+    identity always comes from the login; bodies are size-limited and never logged."""
+
+    def user():
+        return dict(g.user)  # captured once per request
+
+    @app.get("/api/recipes")
+    def list_library():
+        return jsonify(recipes=library.list_records(get_db(), user(), bundled_recipes()))
+
+    @app.post("/api/recipes")
+    def create_recipe():
+        caller = user()
+        recipe, scope = library.create_body(limited_body(library.MAX_BODY), caller)
+        db = get_db()
+        with transaction(db):
+            record = library.insert(db, caller, bundled_recipes(), recipe, scope, now())
+        return jsonify(recipe=record), 201
+
+    @app.get("/api/recipes/<rid>")
+    def get_recipe(rid):
+        return jsonify(recipe=library.find_record(get_db(), user(), bundled_recipes(), rid))
+
+    @app.put("/api/recipes/<rid>")
+    def update_recipe(rid):
+        caller, db = user(), get_db()
+        library.editable_row(db, caller, bundled_recipes(), rid)  # 404/403 before reading the body
+        recipe = library.update_body(limited_body(library.MAX_BODY))
+        with transaction(db):
+            record = library.update(db, caller, bundled_recipes(), rid, recipe, now())
+        return jsonify(recipe=record)
+
+    @app.delete("/api/recipes/<rid>")
+    def delete_recipe(rid):
+        caller, db = user(), get_db()
+        with transaction(db):  # archived: kept for history; cooking snapshots are separate copies
+            library.archive(db, caller, bundled_recipes(), rid, now())
+        return jsonify(deleted=True)
+
+    @app.post("/api/recipes/<rid>/copy")
+    def copy_recipe(rid):
+        caller, db = user(), get_db()
+        source = library.find_record(db, caller, bundled_recipes(), rid)
+        if limited_body(library.MAX_BODY):
+            raise LibraryError(400, "Send an empty object to copy a recipe.")
+        recipe = library.canonical(library.strip_meta(source))
+        with transaction(db):
+            record = library.insert(db, caller, bundled_recipes(), recipe, "personal", now())
+        return jsonify(recipe=record), 201
+
+    @app.post("/api/recipes/<rid>/scale")
+    def scale_recipe(rid):
+        source = library.find_record(get_db(), user(), bundled_recipes(), rid)
+        return jsonify(library.scale(source, library.servings_body(limited_body(library.MAX_BODY))))
+
+    @app.get("/api/profile")
+    def get_profile():
+        return jsonify(library.stored_profile(get_pref(get_db(), current_user_id(), "profile")))
+
+    @app.put("/api/profile")
+    def save_profile():
+        profile = library.validate_profile(limited_body(library.MAX_BODY))
+        db = get_db()
+        with transaction(db):
+            set_pref(db, current_user_id(), "profile", profile)
+        return jsonify(profile)
+
+    @app.post("/api/recipes/generate")
+    def generate_recipe():
+        # Lease identity and vault state first; after the network call, nothing from flask.g is
+        # used (nested work may replace it) and the lease is rechecked before any draft returns.
+        lease = lease_credentials()
+        user_id = lease.user_id
+        request_data = recipe_ai.validate_request(limited_body(library.MAX_BODY))
+        if lease.connection is None:
+            locked = lease.vault.state()[0] and lease.vault.initialized
+            raise LibraryError(409, LOCKED_AI if locked else NO_AI_CONNECTION)
+        db = get_db()
+        _, connection_settings = lease.vault.state()  # read after the lease: a change fails the recheck
+        model = recipe_ai.choose_model(get_defaults(db, user_id), connection_settings)
+        if model is None:
+            raise LibraryError(409, recipe_ai.NO_MODEL)
+        import providers
+        limiter = current_app.extensions["sous_generation"]
+        limiter.acquire(user_id)  # rejected attempts are not counted
+        text = failure = None
+        try:
+            try:
+                text = providers.bedrock_text(model, recipe_ai.SYSTEM_PROMPT, recipe_ai.build_prompt(request_data),
+                                              lease.connection, recipe_ai.MAX_OUTPUT_TOKENS,
+                                              recipe_ai.READ_TIMEOUT, recipe_ai.MAX_OUTPUT_CHARS)
+            except providers.ProviderError as exc:
+                failure = exc.public_message  # static text only
+            with leased_transaction(db, lease) as problem:
+                pass  # nothing is written; the check runs under the vault guard
+        finally:
+            limiter.release(user_id)
+        if problem is not None:
+            raise problem
+        if failure is not None:
+            current_app.logger.warning("Recipe generation failed: %s", failure)
+            raise LibraryError(502, recipe_ai.FAILED)
+        return jsonify(recipe_ai.parse_output(text))
 
 
 def register_voice_routes(app, sock):

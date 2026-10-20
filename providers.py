@@ -251,7 +251,7 @@ def anthropic_messages(model, jpeg, prompt):
                    if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str))
 
 
-def bedrock_client(service, connection, read_timeout):
+def bedrock_client(service, connection, read_timeout, retries=None):
     """Bedrock client. connection (managed settings) supplies explicit credentials and region;
     without it the legacy AWS_REGION/AWS_PROFILE/default credential chain is used. Credentials
     are passed to the Session only, never written to os.environ."""
@@ -266,7 +266,36 @@ def bedrock_client(service, connection, read_timeout):
                                 aws_session_token=connection.session_token or None,
                                 region_name=connection.region)
     return session.client(service, config=Config(connect_timeout=CONNECT_TIMEOUT, read_timeout=read_timeout,
-                                                 retries={"max_attempts": 2, "mode": "standard"}))
+                                                 retries=retries or {"max_attempts": 2, "mode": "standard"}))
+
+
+def bedrock_text(model, system, prompt, connection, max_tokens, read_timeout, max_chars):
+    """Text-only Converse with an account's explicit connection (required: no environment
+    fallback) and no retries. Returns the reply text; raises ProviderError with static text."""
+    if connection is None:
+        raise ProviderError("An AWS connection is required.")
+    try:
+        client = bedrock_client("bedrock-runtime", connection, read_timeout,
+                                retries={"total_max_attempts": 1, "mode": "standard"})
+        data = client.converse(
+            modelId=model,
+            system=[{"text": system}],
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": max_tokens},
+        )
+    except Exception as exc:
+        error = aws_error(exc)
+        if error is None:
+            raise ProviderError("AWS Bedrock request failed.") from None
+        raise error from None
+    stop = data.get("stopReason") if isinstance(data, dict) else None
+    if stop in ("guardrail_intervened", "content_filtered"):
+        raise ProviderError("Model declined the request.")
+    if stop == "max_tokens":
+        raise ProviderError("Model response was cut off.")
+    content = (((data or {}).get("output") or {}).get("message") or {}).get("content") or []
+    text = "".join(b["text"] for b in content if isinstance(b, dict) and isinstance(b.get("text"), str))
+    return text if len(text) <= max_chars else ""  # oversized output is unusable, not truncated
 
 
 def aws_error(exc):

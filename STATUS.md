@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2.1 backend verified; preparing V2.2 recipe library on feature/v2, branched from updated main (df712e2).
+- Phase: V2.1–V2.2 backend verified; preparing V2.3 cooking tools and advisory alerts on feature/v2.
 - Active: normal V1 Compose stack/data on5050 remains untouched during V2 development; all new tests use temporary data. Isolated V2 UI worktree is awaiting integration.
 - Blockers: no external permission/authentication blocker. V2 remains under implementation and requires full integration/browser/container verification before delivery. Real AI/audio quality remains for the user's live trial.
-- Next checkpoint: commit verified account backend, then implement recipe library/AI drafts against V2 contracts. UI remains isolated until backend contracts are available. Local brag-output/ is preserved and ignored.
+- Next checkpoint: commit recipe backend, integrate the new cooking-tool tests and implement timers/history/prep/advisory alerts. UI remains isolated until the full backend contracts are available. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: V2.2 new API tests RED:16cases7.287s,15failures/1missing-field error on absent routes. Opus implemented library/profile/scaling/own-AWS generation;16 focused tests passed7.391s. Sonnet corrected the small bundled-scope contract to global/read-only. Full discovery passed139 reported tests in39.832s (7optional skips), whitespace clean; independent Luna review found no actionable P1/P2. Separate cooking-tool test worktree passed123-test baseline42.154s;16new tool tests reproduced missing behavior in2.722s. No normal Docker changes or live AWS.
 
 - 2026-10-20: V2.1 final unittest discovery passed123 reported tests in37.129s (7optional skips), including same-credentials lock/unlock voice revocation. Actual localhost Flask-Sock integration passed3 tests in2.729s with synthetic upstream, covering live account auth/CSRF and signed-out handshake refusal. Git whitespace check passed. Backend milestone ready to commit; UI/library not yet integrated, normal Docker stack untouched.
 

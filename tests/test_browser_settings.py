@@ -101,6 +101,10 @@ class SettingsBrowserTests(unittest.TestCase):
         self.page.on("console", lambda message: self.console_errors.append(message.text) if message.type == "error" else None)
         self.page.on("response", self._record_settings_response)
         self.page.goto(f"http://127.0.0.1:{self.server.server_port}", wait_until="networkidle")
+        if self.page.locator("#auth-panel").is_visible():
+            self.page.locator("#setup-username").fill("settings-admin")
+            self.page.locator("#setup-password").fill("settings-admin-test-password")
+            self.page.locator("#admin-setup-form button[type=submit]").click()
         self.page.locator("#setup-panel").wait_for(state="visible")
 
     def _record_settings_response(self, response):

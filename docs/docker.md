@@ -32,7 +32,7 @@ Use .env only for instance-local options such as host port and Ollama. AWS setup
 - `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`), `OLLAMA_MODEL` (default `qwen3-vl:8b`)
 - Shared cloud environment keys/defaults are ignored by V2 account-facing calls.
 
-Variables you leave unset are not passed into the container. After editing `.env`, run `docker compose up -d` to recreate the container. Do not paste keys into commands, logs or issue reports.
+Compose passes only the local Ollama URL/model, with the defaults above. After editing `.env`, run `docker compose up -d` to recreate the container. Do not paste keys into commands, logs or issue reports.
 
 ### Host Ollama
 

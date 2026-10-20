@@ -1,5 +1,7 @@
 # Sous Flask MVP
 
+Current work is [V2 discovery](#v2-discovery) and its delivery checklist: a private multi-user web app with individual AWS connections. Earlier sections record the implemented V1 iterations. Native iOS and TestFlight are deferred.
+
 ## Objective
 
 A local laptop-webcam cooking assistant: persistent recipe state, periodic visual monitoring, automatic step progression, user corrections, one timer, and voice interaction. Recipes are structured data; scrambled eggs is the first bundled/default recipe, not a restriction or tuning target. Codex coordinates Claude Code and Luna and verifies the result.
@@ -90,7 +92,7 @@ Approved additions: personal cooking notes/history, pantry-aware suggestions, se
 - [x] V2.1: backend accounts, session ownership, per-user settings/vaults and authorization tests (account UI integrates in V2.4).
 - [x] V2.2: backend global/personal recipe library, generation, profile inputs and validation tests.
 - [x] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
-- [ ] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
+- [x] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
 - [ ] V2.5: independent isolation/security review, Linux/Compose verification and delivery docs.
 
 ## References

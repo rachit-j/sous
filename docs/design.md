@@ -1,6 +1,6 @@
 # Sous interface design
 
-The visual system for the Sous cooking workspace. Implementation lives in [static/style.css](../static/style.css), markup in [templates/index.html](../templates/index.html), and dynamic markup in [static/app.js](../static/app.js). Behavior and state rules are in [Architecture and cooking state](architecture.md) and the [API contract](api.md).
+The visual system for the Sous cooking workspace and V2 account surfaces. Implementation lives in [static/style.css](../static/style.css), markup in [templates/index.html](../templates/index.html), and dynamic markup in [static/app.js](../static/app.js) and [static/v2.js](../static/v2.js). Behavior and state rules are in [Architecture and cooking state](architecture.md), the [API contract](api.md), and the [V2 API contract](v2-api.md).
 
 ## Design intent
 
@@ -52,11 +52,21 @@ Numbers that change (timer, step counts, elapsed time, confidence, event times) 
 
 ### Navigation and settings
 
-The top bar has internal **Cooking** and **Settings** navigation. Switching views does not reload the document. Leaving an active cooking session pauses guidance and cancels any pending observation before Settings appears; the camera preview may remain local, and returning to Cooking never resumes guidance automatically. A locked Bedrock session shows an unlock notice and keeps manual step controls and timers available.
+The top bar has internal **Cooking**, **Recipes**, **History**, and **Settings** navigation, plus the signed-in user's name and **Log out**. Switching views does not reload the document. Leaving an active cooking session pauses guidance, stops voice, and cancels any pending observation before another view appears; returning to Cooking never resumes guidance automatically. A locked AWS vault shows an unlock notice and keeps manual step controls and timers available. The app asks for authentication before requesting account settings or cooking data. First use shows either a first-administrator setup form or a sign-in form.
 
 Settings uses the same grey surfaces, charcoal type and compact panel treatment as the cooking workspace. The vault panel shows create, unlock or lock state. Bedrock fields include region, write-only access-key credentials, optional token removal, explicit model discovery and a manual model/profile ID. Saved secrets never populate form fields. Provider defaults apply to new sessions; existing sessions keep their provider/model. The snapshot interval is a separate preference, available while the vault is locked, with an integer range of 1–15 seconds and default of 10.
 
-The cooking setup keeps recipe selection and preview as the main pane. Guidance shows a compact provider/model summary; per-session provider and model overrides sit in a disclosure. A saved but unavailable Bedrock default remains selected and disables **Start cooking** until the user unlocks or chooses an available override; it does not silently switch providers.
+The cooking setup keeps recipe selection and preview as the main pane. Guidance shows a compact provider/model summary; per-session provider and model overrides sit in a disclosure. A saved but unavailable Bedrock default remains selected and disables **Start cooking** until the user unlocks or chooses an available override; it does not silently switch providers. Recipe selection includes the signed-in user's personal recipes and recipes shared globally.
+
+### Recipes and accounts
+
+Recipes is a searchable library with explicit shared/personal labels. Global recipes offer **Copy to my recipes**; users can edit and delete only their own recipes. Administrators can create additional global recipes. Recipe editing uses named fields and repeatable ingredient/step rows, not raw JSON. V1 free-text ingredients remain editable; optional amount and unit fields support scaling where quantities are known. AI generation uses explicit dish, ingredient, pantry, equipment, servings, and time inputs, then opens an editable draft with warnings. A draft is saved only after the user submits **Save recipe**.
+
+History lists only the signed-in user's sessions. Selecting a session opens its saved recipe snapshot, events, and private note field. Settings contains that user's password controls, profile defaults, AWS vault, and—only for administrators—account creation and password reset.
+
+### Cooking tools
+
+The existing quick timer remains available. A separate named timer form creates independent timers, each with its own countdown, acknowledge action, and cancel action. The prep checklist is session-specific and checkable. Monitoring health names paused, camera-off, pending, recent, stale, failed, and obscured views; timestamps identify the last successful look. Advisory hazard and possible-emergency panels show model evidence and an explicit acknowledgment. Copy states that snapshots are intermittent and cannot confirm safety or contact emergency services.
 
 ### Setup
 

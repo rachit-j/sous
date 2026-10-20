@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2 backend verified through cooking tools; integrated UI and container verification on feature/v2.
-- Active: normal V1 Compose stack/data on5050 remains untouched. New UI is integrated; one voice status-copy regression is being corrected. Disposable V2 verification stack uses5051.
+- Phase: V2 implementation, independent review and automated verification passed on feature/v2; local runtime update next.
+- Active: normal V1 Compose stack/data on5050 remains preserved pending the V2 update. Disposable5051 verification stack is stopped with its volume retained.
 - Blockers: no external permission/authentication blocker. V2 remains under implementation and requires full integration/browser/container verification before delivery. Real AI/audio quality remains for the user's live trial.
-- Next checkpoint: finish real cooking-tool browser flows, voice regression and Linux/Compose persistence checks. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
+- Next checkpoint: commit the verified UI, update normal Compose with its existing volume, check public startup metadata, and finish delivery documentation. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
 
 ## Milestones
+
+- 2026-10-20: Final isolated WebKit run passed26reported cases101.923s (25executed,1optional live Ollama skip). Includes real two-user account/library/media cleanup, checklist/timer/advisory/history persistence, reviewed generation and immediate cook, late JSON-response signout protection, all original cooking/Settings/voice flows and desktop/390px overflow checks. Root found/fixed missing new-session tool lifecycle dispatch; real tool flow passed5.254s before final suite. Desktop/mobile screenshots inspected. Independent Luna final review found no remaining actionable P1/P2. Linux167reported tests36.245s (11optional skips),3Docker persistence cases9.584s and3actual socket cases2.575s passed. No paid AWS/physical devices; disposable stack stopped without volume deletion.
 
 - 2026-10-20: V2.3 focused cooking/provider/voice tests passed62cases14.655s. Independent Luna review found emergency escalation at a full alert cap could be dropped and safety alerts were not proactively spoken. Claude corrected bounded priority replacement and one advisory voice update per newly stored alert. Full discovery passed166 reported tests48.782s (10optional skips). Real two-user WebKit account/library/media-cleanup case passed5.403s;2fixture UI cases passed17.730s. Original browser run reported22cases75.726s,1voice status-copy failure/1live skip; fix underway. Linux image build and Compose validation passed; normal app remains unchanged.
 

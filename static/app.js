@@ -2,7 +2,7 @@
   "use strict";
 
   const $ = (selector) => document.querySelector(selector);
-  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const START_LABEL = 'Start cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
   const state = {
     config: null,
@@ -27,23 +27,50 @@
     restored: false,
     renderedStepKey: "",
     companion: null,
+    auth: null,
+    accountEpoch: 0,
+    signingOut: false,
   };
+  const coreRequests = new Set();
 
   const api = async (path, options = {}) => {
-    const response = await fetch(path, {
-      credentials: "same-origin",
-      ...options,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.method && options.method !== "GET" ? { "X-CSRF-Token": csrfToken } : {}),
-        ...options.headers,
-      },
-    });
+    const epoch = state.accountEpoch;
+    const controller = new AbortController();
+    const externalSignal = options.signal;
+    const relayAbort = () => controller.abort(externalSignal?.reason);
+    if (externalSignal?.aborted) relayAbort();
+    else externalSignal?.addEventListener("abort", relayAbort, { once: true });
+    coreRequests.add(controller);
+    let response;
     let data;
-    try { data = await response.json(); } catch { data = {}; }
+    try {
+      response = await fetch(path, {
+        credentials: "same-origin",
+        ...options,
+        signal: controller.signal,
+        headers: {
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.method && options.method !== "GET" ? { "X-CSRF-Token": csrfToken } : {}),
+          ...options.headers,
+        },
+      });
+      try { data = await response.json(); } catch { data = {}; }
+    } finally {
+      coreRequests.delete(controller);
+      externalSignal?.removeEventListener("abort", relayAbort);
+    }
+    if (epoch !== state.accountEpoch) {
+      const error = new Error("This response belongs to a signed-out account.");
+      error.stale = true;
+      throw error;
+    }
     if (!response.ok) {
       const error = new Error(data.error || `Request failed (${response.status}).`);
       error.status = response.status;
+      if (response.status === 401 && state.auth?.user) {
+        document.dispatchEvent(new Event("sous:unauthorized"));
+        window.location.reload();
+      }
       throw error;
     }
     return data;
@@ -57,6 +84,7 @@
   }
 
   function showToast(message, isError = false) {
+    if (state.signingOut) return;
     const toast = $("#toast");
     toast.textContent = message;
     toast.className = `toast${isError ? " error" : ""}`;
@@ -107,6 +135,23 @@
     updateRecipePeek();
     renderGuidanceSummary();
     updateStartAvailability();
+  }
+
+  async function refreshRecipeCatalog(preferredRecipeId) {
+    const result = await api("/api/config");
+    const recipes = result.recipes || [];
+    state.config = { ...(state.config || result), recipes };
+    const select = $("#recipe-select");
+    const currentRecipeId = select.value;
+    const preferred = preferredRecipeId == null ? currentRecipeId : String(preferredRecipeId);
+    select.replaceChildren();
+    recipes.forEach((recipe) => select.add(new Option(recipe.name, recipe.id)));
+    if (recipes.some((recipe) => String(recipe.id) === preferred)) select.value = preferred;
+    else if (recipes.some((recipe) => String(recipe.id) === currentRecipeId)) select.value = currentRecipeId;
+    else if (recipes.length) select.value = String(recipes[0].id);
+    updateRecipePeek();
+    updateStartAvailability();
+    return recipes;
   }
 
   function renderGuidanceSummary() {
@@ -200,12 +245,11 @@
 
   function setActiveNav(settingsView) {
     state.settingsView = settingsView;
-    $("#nav-cooking").classList.toggle("active", !settingsView);
-    $("#nav-settings").classList.toggle("active", settingsView);
-    if (settingsView) $("#nav-settings").setAttribute("aria-current", "page");
-    else $("#nav-settings").removeAttribute("aria-current");
-    if (!settingsView) $("#nav-cooking").setAttribute("aria-current", "page");
-    else $("#nav-cooking").removeAttribute("aria-current");
+    document.querySelectorAll(".app-nav .nav-button").forEach((button) => {
+      const active = button.dataset.view === (settingsView ? "settings" : "cooking");
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current");
+    });
   }
 
   function clearSettingsSecrets() {
@@ -304,6 +348,7 @@
     state.config = config;
     renderSettings();
     fillSetup(config, previousDefaults !== JSON.stringify(config.defaults || null));
+    document.dispatchEvent(new CustomEvent("sous:account-settings", { detail: { settings } }));
   }
 
   async function showSettings() {
@@ -601,6 +646,29 @@
 
   async function boot() {
     try {
+      const auth = await api("/api/auth");
+      state.auth = auth;
+      if (auth.csrf_token) {
+        csrfToken = auth.csrf_token;
+        document.querySelector('meta[name="csrf-token"]').content = csrfToken;
+      }
+      if (!auth.user) {
+        $("#loading-panel").hidden = true;
+        $("#auth-panel").hidden = false;
+        $("#app-nav").hidden = true;
+        $("#account-controls").hidden = true;
+        $("#auth-title").textContent = auth.setup_required ? "Set up this private Sous instance" : "Sign in to Sous";
+        $("#auth-intro").textContent = auth.setup_required
+          ? "Create the first administrator. Each person gets a separate account, recipe library, cooking history, and AWS connection."
+          : "Your recipes, cooking sessions, and AWS connection are private to your account.";
+        $("#admin-setup-form").hidden = !auth.setup_required;
+        $("#login-form").hidden = auth.setup_required;
+        return;
+      }
+      $("#auth-panel").hidden = true;
+      $("#account-controls").hidden = false;
+      $("#account-name").textContent = auth.user.username;
+      $("#user-admin-panel").hidden = !auth.user.is_admin;
       const [config, settings] = await Promise.all([api("/api/config"), api("/api/settings")]);
       state.config = config;
       state.settings = settings;
@@ -620,6 +688,7 @@
         $("#session-panel").hidden = false;
         $("#restore-notice").hidden = false;
         renderSession();
+        document.dispatchEvent(new CustomEvent("sous:session", { detail: { session: paused } }));
         setConnection("Session restored");
       } else {
         $("#setup-panel").hidden = false;
@@ -628,11 +697,73 @@
       $("#app-nav").hidden = false;
       setActiveNav(false);
       state.timerLoop = setInterval(tickTimer, 250);
+      document.dispatchEvent(new CustomEvent("sous:ready", { detail: { user: auth.user, csrfToken, settings, sampleInterval: config.sample_interval || 10 } }));
     } catch (error) {
       $("#loading-panel").hidden = true;
       setConnection("Connection problem", "problem");
       showToast(error.message || "Could not load Sous. Reload the page to try again.", true);
     }
+  }
+
+  async function submitAuthForm(event, path, errorSelector) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    $(errorSelector).hidden = true;
+    try {
+      const result = await post(path, values);
+      if (result.csrf_token) document.querySelector('meta[name="csrf-token"]').content = result.csrf_token;
+      window.location.reload();
+    } catch (error) {
+      $(errorSelector).textContent = error.message;
+      $(errorSelector).hidden = false;
+    }
+  }
+
+  async function openV2View(view) {
+    if (view === "cooking" && !state.settingsView && $("#recipes-panel").hidden && $("#history-panel").hidden) return;
+    if (state.companion?.running) {
+      const viewName = view === "settings" ? "Settings" : view === "recipes" ? "Recipes" : "History";
+      stopVoiceCompanion(`Voice stopped because ${viewName} was opened.`);
+    }
+    if (state.cameraRequestPending) {
+      state.cameraRequestId += 1;
+      state.cameraRequestPending = false;
+    }
+    clearInterval(state.captureTimer);
+    state.captureTimer = null;
+    cancelObservationRequest();
+    if (state.listening && state.recognition) {
+      state.listening = false;
+      state.restartRecognition = false;
+      try { state.recognition.stop(); } catch { /* inactive */ }
+    }
+    if (state.session?.status === "active" && state.session.monitoring) {
+      try { await runAction("pause", {}, { announce: false, silent: true }); }
+      catch (error) { showToast(error.message || "Pause guidance before leaving Cooking.", true); return; }
+    }
+    state.settingsView = view === "settings";
+    clearSettingsSecrets();
+    ["setup-panel", "session-panel", "completion-panel", "settings-panel", "recipes-panel", "history-panel"].forEach((id) => { document.getElementById(id).hidden = true; });
+    if (view === "cooking") {
+      if (state.session?.status === "active") $("#session-panel").hidden = false;
+      else if (state.session?.status === "completed" || state.session?.status === "ended") $("#completion-panel").hidden = false;
+      else $("#setup-panel").hidden = false;
+      if (state.session?.status === "active") renderSession();
+    } else {
+      document.getElementById(`${view}-panel`).hidden = false;
+      if (view === "settings") {
+        $("#settings-panel").hidden = false;
+        try { await refreshSettingsState(); } catch (error) { showToast(error.message, true); }
+      }
+    }
+    document.querySelectorAll(".app-nav .nav-button").forEach((button) => {
+      const active = button.dataset.view === view;
+      button.classList.toggle("active", active);
+      if (active) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current");
+    });
+    document.dispatchEvent(new CustomEvent("sous:view", { detail: { view, session: state.session } }));
+    $("#main").focus({ preventScroll: true });
   }
 
   function runAction(action, extra = {}, options = {}) {
@@ -689,6 +820,7 @@
     }
     state.session = session;
     state.recipe = session.recipe || null;
+    document.dispatchEvent(new CustomEvent("sous:session", { detail: { session } }));
     renderSession();
     if (previous && options.announce !== false) announceStateChange(previous, session, options.source);
     if (session.status !== "active") finishSessionUi(session.status);
@@ -1335,12 +1467,10 @@
         model: String(form.get("model")).trim(),
         mode: String(form.get("mode")),
       });
-      state.session = session;
-      state.recipe = session.recipe || null;
       state.restored = false;
       $("#setup-panel").hidden = true;
       $("#session-panel").hidden = false;
-      renderSession();
+      acceptSession(session, { announce: false, source: "created" });
       setConnection("Session saved");
       if (session.mode === "assistive" && state.recipe?.steps?.[0]) speak(`${state.recipe.steps[0].title}. ${state.recipe.steps[0].instruction}`);
     } catch (error) {
@@ -1351,8 +1481,44 @@
   }
 
   function bindEvents() {
-    $("#nav-cooking").addEventListener("click", showCooking);
-    $("#nav-settings").addEventListener("click", showSettings);
+    $("#nav-cooking").dataset.view = "cooking";
+    $("#nav-settings").dataset.view = "settings";
+    $("#nav-recipes").dataset.view = "recipes";
+    $("#nav-history").dataset.view = "history";
+    $("#nav-recipes").addEventListener("click", () => openV2View("recipes"));
+    $("#nav-history").addEventListener("click", () => openV2View("history"));
+    $("#nav-cooking").addEventListener("click", () => openV2View("cooking"));
+    $("#nav-settings").addEventListener("click", () => openV2View("settings"));
+    document.addEventListener("sous:recipes-changed", (event) => {
+      const { recipeId, resolve, reject } = event.detail || {};
+      refreshRecipeCatalog(recipeId).then(resolve, reject);
+    });
+    document.addEventListener("sous:unauthorized", () => {
+      state.accountEpoch += 1;
+      state.signingOut = true;
+      coreRequests.forEach((controller) => controller.abort());
+      coreRequests.clear();
+      cleanupSession();
+      state.auth = null;
+      state.config = null; state.settings = null; state.recipe = null; state.session = null; state.restored = false;
+      clearInterval(state.timerLoop); state.timerLoop = null;
+      ["#setup-panel", "#session-panel", "#completion-panel", "#settings-panel", "#recipes-panel", "#history-panel", "#auth-panel"].forEach((selector) => { $(selector).hidden = true; });
+      $("#app-nav").hidden = true; $("#account-controls").hidden = true; $("#account-name").textContent = "";
+      const main = $("#main");
+      main.querySelectorAll("input, textarea, select").forEach((field) => {
+        if (field.type === "checkbox" || field.type === "radio") field.checked = false;
+        else if (field.tagName === "SELECT") field.selectedIndex = -1;
+        else field.value = "";
+      });
+      $("#loading-panel").hidden = false; $("#loading-panel").textContent = "Signing out…";
+      $("#toast").hidden = true; $("#toast").textContent = "";
+    });
+    $("#logout-button").addEventListener("click", async () => {
+      document.dispatchEvent(new Event("sous:unauthorized"));
+      try { await post("/api/auth/logout", {}); } finally { window.location.reload(); }
+    });
+    $("#login-form").addEventListener("submit", (event) => submitAuthForm(event, "/api/auth/login", "#login-error"));
+    $("#admin-setup-form").addEventListener("submit", (event) => submitAuthForm(event, "/api/auth/setup", "#setup-error"));
     $("#settings-unlock-link").addEventListener("click", showSettings);
     $("#session-unlock-link").addEventListener("click", showSettings);
     $("#setup-form").addEventListener("submit", createSession);
@@ -1392,6 +1558,24 @@
     $("#default-provider").addEventListener("change", setModelDefaultProvider);
     $("#interval-form").addEventListener("submit", saveSampleInterval);
     $("#voice-preference-form").addEventListener("submit", saveVoicePreference);
+    $("#password-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setFormError("#password-error");
+      try {
+        const result = await post("/api/auth/password", { current_password: $("#current-password").value, new_password: $("#new-password").value });
+        if (result.csrf_token) document.querySelector('meta[name="csrf-token"]').content = result.csrf_token;
+        cleanupSession();
+        window.location.reload();
+      } catch (error) { setFormError("#password-error", error.message); }
+    });
+    $("#user-create-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        await post("/api/users", { username: $("#new-user-name").value, password: $("#new-user-password").value, is_admin: false });
+        $("#new-user-name").value = ""; $("#new-user-password").value = "";
+        document.dispatchEvent(new CustomEvent("sous:users-changed"));
+      } catch (error) { setFormError("#user-create-error", error.message); }
+    });
     $("#next-button").addEventListener("click", () => runAction("next").catch(() => {}));
     $("#back-button").addEventListener("click", () => runAction("back").catch(() => {}));
     $("#finish-button").addEventListener("click", finishCooking);
@@ -1452,6 +1636,7 @@
       state.session = null;
       state.recipe = null;
       state.restored = false;
+      document.dispatchEvent(new CustomEvent("sous:session", { detail: { session: null } }));
       fillSetup(state.config || {}, true);
       $("#completion-panel").hidden = true;
       $("#setup-panel").hidden = false;

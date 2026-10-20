@@ -40,7 +40,7 @@ Named timers, notes and preparation changes are authorized against the parent se
 
 ## Advisory monitoring
 
-Session responses add bounded alert records and observation freshness metadata. Alert `{id,category:"hazard"|"possible_emergency",title,evidence,created_at,acknowledged_at}`. POST `/api/sessions/<id>/alerts/<alert_id>/ack` explicitly acknowledges an alert. Alerts do not change steps/timers; absence of alerts is never an all-clear. Deduplicate repeated identical concerns while allowing meaningful escalation.
+Session responses add bounded alert records and observation freshness metadata. Alert `{id,category:"hazard"|"possible_emergency",title,evidence,created_at,acknowledged_at}`. POST `/api/sessions/<id>/alerts/<alert_id>/ack` explicitly acknowledges an alert. Alerts do not change steps/timers; absence of alerts is never an all-clear. Deduplicate identical category/title/evidence within60 seconds. At20active alerts, a new possible emergency replaces the oldest hazard, or the oldest emergency when necessary, without fabricating acknowledgment. Newly stored concerns produce one advisory event for active voice.
 
 Observation normalization may add a bounded advisory safety object and visible-scene/obstruction status. Existing old provider responses remain valid. Manual timer alerts do not depend on AI. Model failures, stale/revoked responses and missing/obscured frames cannot produce an implicit healthy state. Web UI combines server freshness with camera visibility, pending and permission state for paused/camera-off/pending/recent/stale/error/obscured labels. Explain that snapshots are intermittent; no continuous emergency monitoring or automated contacts.
 

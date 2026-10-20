@@ -2,6 +2,10 @@
 
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
+## V2 discovery — 2026-10-20
+
+Main includes voice MR2 (df712e2). Codex pulled main and created feature/v2. User requests username/password accounts, global/personal recipes, AI recipe maker and AI hazard/emergency detection, plus brainstorming. Audience confirmed: a few trusted users on one private instance. Root records a proposed capability map in PLAN.md; Luna provides read-only ideas. No V2 app implementation or new branch push authorized in this discovery turn. Resolve shared vault/session/voice limits and global editing policy before coding. AI alert UX must expose uncertainty and monitoring availability.
+
 ## Repository handoff — 2026-10-20
 
 User authorized ignoring local brag-output/ and pushing all relevant feature work for their MR. Codex refreshed project context and remote refs: feature/conversational-voice is five commits ahead of origin/main with no remote divergence or other application edits. Root-only housekeeping adds the ignore rule and records this handoff; no application implementation delegated. Fresh unit discovery passed102 reported tests (7 optional skips); JavaScript syntax and whitespace checks passed. Preserve generated brag files locally; push only this feature branch, without opening or merging an MR.

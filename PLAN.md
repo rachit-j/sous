@@ -68,6 +68,25 @@ User also requested snapshot frequency settings:10-second default,15-second maxi
 
 Implement [AWS live voice](docs/voice.md) on feature/conversational-voice, created after pulling main. User chose existing AWS credentials and back-and-forth speech with interruption. Opus owns secure duplex backend; Luna owns opt-in audio UI and voice Settings. Codex coordinates, reviews, verifies synthetic tests and Docker, and commits milestones. Preserve unrelated brag-output/. Voice uses server-authoritative recipe context without changing cooking state. Real AWS audio and microphone remain for the user's final trial.
 
+## V2 discovery
+
+Work on feature/v2 from updated main (df712e2). Target: a few trusted users sharing one private instance. Remain on Flask and Docker Compose for iteration. This is a proposed capability map for discussion, not an approved implementation specification.
+
+| Module | Responsibility | Depends on |
+|---|---|---|
+| identity | Username/password accounts, login/logout and account-scoped access | — |
+| user-context | Separate cooking sessions, preferences and provider access policy for each user | identity |
+| recipe-library | Shared global recipes and private personal recipes; explicit ownership and editing rules | identity |
+| recipe-generator | Generate editable recipe drafts and validate them before saving to the personal library | user-context, recipe-library |
+| hazard-alerts | Advisory visual concerns, evidence, severity, freshness and acknowledgment | user-context |
+| emergency-alerts | Prominent possible-emergency alerts and escalation UX | hazard-alerts |
+
+Suggested build order: identity → user-context and recipe-library → recipe-generator → hazard-alerts → emergency-alerts. Reuse immutable session recipe snapshots. Audit existing singleton session, credential-vault and voice-stream assumptions before enabling multiple simultaneous cooks.
+
+Open decisions: account provisioning/reset; who edits global recipes; whether users may submit personal recipes for global publication; shared administrator-funded AWS versus per-user credentials; simultaneous cook limits; supported hazard categories and how to evaluate false alarms/misses. AI alerts are advisory and cannot establish kitchen safety. No automated emergency-service contact is authorized.
+
+Additional ideas to discuss: personal cooking notes/history, pantry-aware suggestions, serving-size scaling, multiple named timers, pre-cook preparation checks and a monitoring-health display. Luna additionally suggested opt-in equipment/guidance profiles, explicit personal-to-global sharing and consent-based cooking-session handoff. Features remain candidates until the user chooses the V2 scope. Codex coordinates Opus/Luna after scope and boundaries are reviewed; no V2 application implementation yet.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

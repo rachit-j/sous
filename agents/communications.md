@@ -4,6 +4,8 @@ Coordinator: Codex. Agents return findings through their task channel; Codex rec
 
 ## V2 discovery — 2026-10-20
 
+Scope accepted: all six cooking additions, user-owned AWS connections and Web V2 first. TestFlight/native iOS explicitly deferred. docs/v2.md defines isolation, private provisioning, global admin recipes/private personal recipes, human-approved generation, named timers/history/profile/prep and advisory monitoring. Opus writes tests/test_accounts.py only before root RED run; then bounded identity integration. Luna plans UI/data shapes read-only. Preserve normal Docker database/vault and legacy rows, no automatic account claim of V1 data.
+
 Main includes voice MR2 (df712e2). Codex pulled main and created feature/v2. User requests username/password accounts, global/personal recipes, AI recipe maker and AI hazard/emergency detection, plus brainstorming. Audience confirmed: a few trusted users on one private instance. Root records a proposed capability map in PLAN.md; Luna provides read-only ideas. No V2 app implementation or new branch push authorized in this discovery turn. Resolve shared vault/session/voice limits and global editing policy before coding. AI alert UX must expose uncertainty and monitoring availability.
 
 ## Repository handoff — 2026-10-20

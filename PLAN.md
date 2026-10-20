@@ -70,7 +70,7 @@ Implement [AWS live voice](docs/voice.md) on feature/conversational-voice, creat
 
 ## V2 discovery
 
-Work on feature/v2 from updated main (df712e2). Target: a few trusted users sharing one private instance. Remain on Flask and Docker Compose for iteration. This is a proposed capability map for discussion, not an approved implementation specification.
+Work on feature/v2 from updated main (df712e2). Target: a few trusted users sharing one private instance. User approved the additional features and requires each user to supply their own AWS connection. Chosen path: Web V2 first. TestFlight and native iOS work are deferred because the user has no paid Apple developer account. [V2 specification](docs/v2.md) records the implementation scope and boundaries.
 
 | Module | Responsibility | Depends on |
 |---|---|---|
@@ -83,9 +83,15 @@ Work on feature/v2 from updated main (df712e2). Target: a few trusted users shar
 
 Suggested build order: identity → user-context and recipe-library → recipe-generator → hazard-alerts → emergency-alerts. Reuse immutable session recipe snapshots. Audit existing singleton session, credential-vault and voice-stream assumptions before enabling multiple simultaneous cooks.
 
-Open decisions: account provisioning/reset; who edits global recipes; whether users may submit personal recipes for global publication; shared administrator-funded AWS versus per-user credentials; simultaneous cook limits; supported hazard categories and how to evaluate false alarms/misses. AI alerts are advisory and cannot establish kitchen safety. No automated emergency-service contact is authorized.
+Defaults for implementation: first administrator setup, administrator-created accounts, administrator-managed global recipes, private personal recipes and per-user AWS vaults. One active cook per user; conservative instance-wide voice capacity remains visible. AI alerts are advisory and cannot establish kitchen safety. No automated emergency-service contact is authorized.
 
-Additional ideas to discuss: personal cooking notes/history, pantry-aware suggestions, serving-size scaling, multiple named timers, pre-cook preparation checks and a monitoring-health display. Luna additionally suggested opt-in equipment/guidance profiles, explicit personal-to-global sharing and consent-based cooking-session handoff. Features remain candidates until the user chooses the V2 scope. Codex coordinates Opus/Luna after scope and boundaries are reviewed; no V2 application implementation yet.
+Approved additions: personal cooking notes/history, pantry-aware suggestions, serving-size scaling, multiple named timers, pre-cook preparation checks and a monitoring-health display. Household handoff is deferred. Codex coordinates Opus backend and Luna frontend/review in verified slices:
+
+- [ ] V2.1: accounts, session ownership, per-user settings/vaults and authorization tests.
+- [ ] V2.2: global/personal recipe library, generation, profile inputs and validation tests.
+- [ ] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
+- [ ] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
+- [ ] V2.5: independent isolation/security review, Linux/Compose verification and delivery docs.
 
 ## References
 

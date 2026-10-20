@@ -2,6 +2,8 @@
 
 Stable Markdown documents and relative links are the source of truth for future graphing.
 
+- [V2 specification](v2.md): private multi-user accounts, per-user AWS, recipe generation and cooking tools; web first and native iPhone client later.
+
 - [Project plan](../PLAN.md): intent, scope, delegation and acceptance.
 - [Agent instructions](../AGENTS.md): operating constraints for every agent.
 - [Status log](../STATUS.md): current work and high-level milestones.

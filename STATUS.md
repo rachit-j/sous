@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2 discovery on feature/v2, branched from updated main (df712e2) after voice merged.
+- Phase: V2.1 account/isolation test-first implementation on feature/v2, branched from updated main (df712e2) after voice merged.
 - Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
 - Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
-- Next checkpoint: agree V2 capabilities and account/data boundaries for a few trusted users on one private instance. No V2 application changes yet. Local brag-output/ is preserved and ignored.
+- Next checkpoint: run Opus's new isolation tests before implementation, then integrate server-side accounts and per-user AWS vaults. Luna plans the UI contracts read-only. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: User approved added V2 cooking features and per-user AWS connections. Confirmed web first; explicitly deferred TestFlight/native iOS due to no paid Apple developer account. Wrote docs/v2.md and delivery slices. Opus is sole writer for new account tests (RED phase); Luna plans UI/API contracts read-only. No changes to normal Compose data or live AWS calls.
 
 - 2026-10-20: Updated main with fast-forward-only pull and created feature/v2 from df712e2. User selected a private instance for a few trusted users. Recorded proposed identity, user context, global/personal recipes, AI recipe drafts and advisory hazard/emergency modules in PLAN.md. Luna assigned bounded read-only feature brainstorming. Application implementation awaits scope discussion.
 

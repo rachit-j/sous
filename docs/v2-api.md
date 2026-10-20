@@ -31,7 +31,7 @@ Keep V1 `ingredients` as display strings and existing step fields. Recipe metada
 
 ## Cooking tools
 
-- GET/POST `/api/sessions/<id>/timers`: list `{timers:[...]}` or create `{name,duration_seconds}`. Each timer has id/name/deadline/status; positive seconds <=86400, bounded name and count. POST `/timers/<timer_id>/ack` or `/cancel` is idempotent. Existing singular timer actions remain compatible. No timer mutation advances a step.
+- GET/POST `/api/sessions/<id>/timers`: list `{timers:[...]}` or create `{name,duration_seconds}`. Each timer has `id`, `name`, absolute `deadline_at` and `status` (`running`, `elapsed`, `acknowledged` or `cancelled`); integer seconds1–86400, name1–80 characters and at most8 live timers. POST `/timers/<timer_id>/ack` or `/cancel` is idempotent. Existing singular timer actions remain compatible. No timer mutation advances a step.
 - GET `/api/history`: bounded current-user session summaries; GET `/api/history/<id>`: owned session snapshot/events/notes. PUT `/api/history/<id>/note`: `{note}` bounded to4000 characters.
 - GET/PUT `/api/profile`: `{pantry,equipment,servings,time_budget_minutes}`. Generation uses explicit current inputs; the UI can prefill from these saved preferences.
 - GET/PUT `/api/sessions/<id>/checklist`: ingredient/equipment entries with checked state; PUT uses server-generated item IDs and booleans. Checklist belongs to the cook, not the recipe catalog.

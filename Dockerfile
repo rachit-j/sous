@@ -11,7 +11,7 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 # Allowlist: only runtime files. Docs, agent notes, tests and dev requirements stay out.
-COPY accounts.py app.py library.py providers.py recipe_ai.py recipes.py settings.py voice.py ./
+COPY accounts.py app.py cooking.py library.py providers.py recipe_ai.py recipes.py settings.py voice.py ./
 COPY recipes/ ./recipes/
 COPY templates/ ./templates/
 COPY static/ ./static/

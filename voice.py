@@ -22,6 +22,8 @@ import uuid
 from flask import current_app
 from simple_websocket import ConnectionClosed
 
+import cooking
+
 MODEL_ID = "amazon.nova-2-sonic-v1:0"
 SUPPORTED_REGIONS = ("us-east-1", "us-west-2", "eu-north-1", "ap-northeast-1")
 VOICES = ("tiffany", "matthew")
@@ -100,9 +102,10 @@ PERSONA = (
     "Camera notes cannot confirm food safety; for safety questions suggest a thermometer or trusted "
     f"guidance. Messages starting with {UPDATE_PREFIX} come from the app, not the cook; respond to "
     "them briefly and do not repeat earlier camera notes unless asked. "
-    f"When the cook asks about their current progress, how much time is left on the timer, or what "
+    f"When the cook asks about their current progress, how much time is left on a timer, or what "
     f"the camera noticed recently, call {TOOL_NAME} first and answer from its result; it only reads "
-    "the app's current step, timer and latest camera note. Do not call it otherwise."
+    "the app's current step, timers, latest camera note and unacknowledged camera alerts. Camera alerts "
+    "are advisory and may be wrong; never say the kitchen is safe. Do not call it otherwise."
 )
 
 INTERRUPTED = re.compile(r'\{\s*"interrupted"\s*:\s*true\s*\}')
@@ -172,7 +175,8 @@ def system_prompt(recipe):
             f"Ingredients: {ingredients}\nSteps:\n{steps}")[:MAX_CONTEXT]
 
 
-def describe_state(recipe, row, at):
+def describe_state(recipe, row, at, extra=None):
+    """Plain-language state; extra adds named timers and advisory alerts for the context tool."""
     steps = recipe["steps"]
     index = row["step_index"]
     step = steps[index]
@@ -201,6 +205,8 @@ def describe_state(recipe, row, at):
         parts.append(note)
     else:
         parts.append("No camera notes yet.")
+    if extra:
+        parts.append(extra)
     return " ".join(parts)
 
 
@@ -210,6 +216,11 @@ def greeting(recipe, row, at):
 
 
 STATE_COLUMNS = "status, step_index, monitoring, timer_deadline, timer_alerted, latest_observation"
+# Named timers whose deadline has passed, unless cancelled or dismissed before finishing. An
+# acknowledgment after the deadline (the UI may ack between polls) still gets one announcement.
+NAMED_DONE = ("SELECT id, name FROM session_timers WHERE session_id = ? AND deadline_at <= ?"
+              " AND cancelled_at IS NULL AND (acknowledged_at IS NULL OR acknowledged_at >= deadline_at)"
+              f" ORDER BY id LIMIT {cooking.MAX_TIMERS}")
 
 
 class SessionWatcher:
@@ -222,6 +233,8 @@ class SessionWatcher:
         self.timer_done = self.deadline if self.deadline is not None and at >= self.deadline else None
         last = db.execute("SELECT MAX(id) FROM events WHERE session_id = ?", (session_id,)).fetchone()[0]
         self.last_event = last or 0
+        # Named timers that already finished before voice started are not announced again.
+        self.named_done = {r["id"] for r in db.execute(NAMED_DONE, (session_id, at))}
 
     def poll(self, at):
         """Return (update text or None, end reason or None)."""
@@ -245,15 +258,28 @@ class SessionWatcher:
             # This watcher announces its first observed deadline crossing independently of the
             # browser's timer_ack. The UI may acknowledge between polls while legacy TTS is muted.
             notes.append("The timer just finished. Tell the cook right away in one short sentence.")
+        for timer in self.db.execute(NAMED_DONE, (self.session_id, at)).fetchall():
+            if timer["id"] not in self.named_done:
+                self.named_done.add(timer["id"])
+                notes.append(f"The {clean_text(timer['name'], cooking.MAX_TIMER_NAME)} timer just finished."
+                             " Tell the cook right away in one short sentence.")
         alerts = self.db.execute(
-            "SELECT id, message FROM events WHERE session_id = ? AND kind = 'alert' AND id > ?"
-            " ORDER BY id DESC LIMIT 3", (self.session_id, self.last_event)).fetchall()
+            "SELECT id, kind, message, created_at FROM events WHERE session_id = ?"
+            " AND kind IN ('alert', 'safety') AND id > ? ORDER BY id DESC LIMIT 3",
+            (self.session_id, self.last_event)).fetchall()
         if alerts:
             self.last_event = alerts[0]["id"]
+            safety_times = {a["created_at"] for a in alerts if a["kind"] == "safety"}
             for alert in reversed(alerts):
-                notes.append(f"An earlier camera snapshot raised this alert: "
-                             f"{clean_text(alert['message'], MAX_NOTE_TEXT)}. Mention it calmly in one "
-                             "sentence; you cannot see the kitchen now.")
+                if alert["kind"] == "safety":
+                    notes.append(f"An earlier camera snapshot flagged an advisory concern: "
+                                 f"{clean_text(alert['message'], MAX_NOTE_TEXT)}. It may be wrong and you cannot "
+                                 "see the kitchen now. Mention it calmly in one sentence, suggest the cook "
+                                 "check for themselves, and never say the kitchen is safe.")
+                elif alert["created_at"] not in safety_times:  # same sample: one announcement only
+                    notes.append(f"An earlier camera snapshot raised this alert: "
+                                 f"{clean_text(alert['message'], MAX_NOTE_TEXT)}. Mention it calmly in one "
+                                 "sentence; you cannot see the kitchen now.")
         if not notes:
             return None, None
         text = f"{UPDATE_PREFIX} {' '.join(notes)} {describe_state(self.recipe, row, at)}"
@@ -278,7 +304,8 @@ def setup_events(prompt, audio_content, voice_id, instructions):
             "toolUseOutputConfiguration": {"mediaType": "application/json"},
             "toolConfiguration": {"tools": [{"toolSpec": {
                 "name": TOOL_NAME,
-                "description": "Read the current cooking step, timer and latest camera note when asked.",
+                "description": ("Read the current cooking step, timers, latest camera note and unacknowledged"
+                                " advisory camera alerts when asked."),
                 "inputSchema": {"json": TOOL_SCHEMA},
             }}]},
         }),
@@ -947,7 +974,9 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                             result = {"error": NOT_ACTIVE}
                         else:
                             fresh_recipe = json.loads(fresh["recipe_snapshot"])
-                            result = {"context": describe_state(fresh_recipe, fresh, clock())[:MAX_CONTEXT]}
+                            at = clock()  # read-only: named timers and unacknowledged advisory alerts
+                            tools = cooking.voice_context(db, session_id, at, clean_text, format_seconds)
+                            result = {"context": describe_state(fresh_recipe, fresh, at, tools)[:MAX_CONTEXT]}
                     if not bridge.answer_context(message["content_name"], message["tool_use_id"], result):
                         terminal = _error(SLOW)
                     continue  # internal request: never expose it to the browser

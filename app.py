@@ -18,10 +18,12 @@ from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
 
 import accounts
+import cooking
 import library
 import recipe_ai
 import voice
 from accounts import AccountError, csrf_token
+from cooking import CookingError
 from library import LibraryError
 from recipes import load_recipes
 from settings import BedrockConnection, SettingsError, Vault, merge_bedrock, validate_model_id
@@ -78,7 +80,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     completion_streak INTEGER NOT NULL DEFAULT 0,
     latest_observation TEXT,
     recipe_snapshot TEXT,
-    user_id INTEGER
+    user_id INTEGER,
+    note TEXT,  -- private cook note (history)
+    checklist TEXT  -- JSON {item_id: true} for the snapshot's preparation checklist
 );
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,6 +164,7 @@ def create_app(test_config=None):
     app.register_error_handler(SettingsError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(AccountError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(LibraryError, lambda e: (jsonify(error=e.message), e.status))
+    app.register_error_handler(CookingError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
     app.register_error_handler(Exception, unexpected_error)
     app.before_request(check_origin_and_csrf)
@@ -170,6 +175,7 @@ def create_app(test_config=None):
                              lambda user_id: lock_user_vault(app, user_id))
     register_settings_routes(app)
     register_library_routes(app)
+    register_cooking_routes(app)
     register_voice_routes(app, Sock(app))
     return app
 
@@ -232,11 +238,15 @@ def init_db(path, now, recipes):
         db.executescript(SCHEMA)
         db.executescript(accounts.SCHEMA)
         db.executescript(library.SCHEMA)
+        db.executescript(cooking.SCHEMA)
         columns = {r["name"] for r in db.execute("PRAGMA table_info(sessions)")}
         if "recipe_snapshot" not in columns:
             db.execute("ALTER TABLE sessions ADD COLUMN recipe_snapshot TEXT")
         if "user_id" not in columns:
             db.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+        for name, kind in cooking.SESSION_COLUMNS:  # internal constants, never user input
+            if name not in columns:
+                db.execute(f"ALTER TABLE sessions ADD COLUMN {name} {kind}")
         db.execute("DROP INDEX IF EXISTS one_active_session")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_user ON sessions(user_id)"
                    " WHERE status = 'active' AND user_id IS NOT NULL")
@@ -325,8 +335,11 @@ def log_event(db, session_id, kind, message, at):
 
 
 def session_json(db, row):
+    """Owner view of a session, including bounded cooking-tool state for polling clients."""
     data = dict(row)
     data.pop("user_id", None)
+    data.pop("checklist", None)
+    data["note"] = data.get("note") or ""
     data["monitoring"] = bool(data["monitoring"])
     data["timer_alerted"] = bool(data["timer_alerted"])
     data["latest_observation"] = json.loads(data["latest_observation"]) if data["latest_observation"] else None
@@ -336,6 +349,12 @@ def session_json(db, row):
         "SELECT id, kind, message, created_at FROM events WHERE session_id = ? ORDER BY id DESC LIMIT ?",
         (row["id"], EVENT_LIMIT),
     )]
+    at = now()
+    data["timers"] = cooking.timers_json(db, row["id"], at)
+    data["checklist"] = cooking.checklist_json(row, data["recipe"])
+    data["alerts"] = cooking.alerts_json(db, row["id"])
+    data["monitoring_health"] = cooking.monitoring_health(db, row, data["latest_observation"], at,
+                                                          get_sample_interval(db, row["user_id"]))
     return data
 
 
@@ -371,7 +390,8 @@ def http_error(exc):
 
 
 def unexpected_error(exc):
-    if request.path.startswith(("/api/settings", "/api/auth", "/api/users", "/api/recipes", "/api/profile")):
+    if request.path.startswith(("/api/settings", "/api/auth", "/api/users", "/api/recipes", "/api/profile",
+                                "/api/history")):
         # No traceback: exception text or frames could carry submitted credentials, passwords,
         # recipe requests or model output.
         current_app.logger.error("Unhandled error in %s request: %s", request.path.split("/")[2],
@@ -708,21 +728,31 @@ def validate_observation(output):
         raise ValueError("step_complete must be boolean")
     if alert is not None and not isinstance(alert, str):
         raise ValueError("alert must be string or null")
+    # Optional advisory fields; older outputs without them mean no safety alert, view not obstructed.
+    safety_alert, view_obstructed = cooking.normalize_safety(output.get("safety_alert"),
+                                                             output.get("view_obstructed"))
     return {
         "activity": activity.strip()[:MAX_TEXT],
         "evidence": evidence.strip()[:MAX_TEXT],
         "confidence": float(confidence),
         "step_complete": complete,
         "alert": (alert.strip()[:MAX_TEXT] or None) if alert else None,
+        "safety_alert": safety_alert,
+        "view_obstructed": view_obstructed,
     }
 
 
 def apply_observation(row, obs, at):
-    """Return (changes, events) for a validated observation on a fresh session row."""
+    """Return (changes, events) for a validated observation on a fresh session row.
+
+    An obstructed view or an advisory safety concern never counts toward completion, whatever
+    the confidence; manual controls are unaffected.
+    """
     steps = recipe_for_session(row)["steps"]
     last = len(steps) - 1
     step = row["step_index"]
-    qualifies = obs["step_complete"] and obs["confidence"] >= COMPLETION_CONFIDENCE
+    qualifies = (obs["step_complete"] and obs["confidence"] >= COMPLETION_CONFIDENCE
+                 and not obs.get("view_obstructed") and obs.get("safety_alert") is None)
     streak = row["completion_streak"] + 1 if qualifies else 0
     previous = json.loads(row["latest_observation"]) if row["latest_observation"] else {}
     changes = {"latest_observation": json.dumps({**obs, "created_at": at}), "updated_at": at}
@@ -857,6 +887,8 @@ def register_routes(app):
                 update_session(db, session_id, {**changes, "updated_at": at})
             if event:
                 log_event(db, session_id, *event, at)
+            if changes.get("status") in ("ended", "completed"):
+                cooking.cancel_session_timers(db, session_id, at)
         return respond_session(session_id, user_id)
 
     @app.post("/api/sessions/<int:session_id>/observations")
@@ -927,6 +959,12 @@ def register_routes(app):
                             update_session(db, session_id, changes)
                             for kind, message in events:
                                 log_event(db, session_id, kind, message, at)
+                            if obs["safety_alert"] is not None:  # advisory; stored only for a fresh result
+                                if cooking.record_alert(db, session_id, obs["safety_alert"], at):
+                                    # One event per newly stored alert (not for dedup repeats) lets an
+                                    # open voice stream mention it once.
+                                    log_event(db, session_id, "safety", cooking.alert_event_message(
+                                        obs["safety_alert"]), at)
         finally:
             with busy["lock"]:
                 busy["busy"].discard(session_id)
@@ -1028,6 +1066,89 @@ def register_settings_routes(app):
         finally:
             guard.release()
         return jsonify(result)
+
+
+TOOL_BODY_BYTES = 64 * 1024
+
+
+def register_cooking_routes(app):
+    """Named timers, preparation checklist, alert acknowledgment and private history
+    (docs/v2-api.md). Every route resolves the parent session through the caller's ownership, so
+    another account's ids look missing. None of these change steps or monitoring."""
+
+    def snapshot(row):
+        return json.loads(row["recipe_snapshot"]) if row["recipe_snapshot"] else None
+
+    @app.get("/api/sessions/<int:session_id>/timers")
+    def list_timers(session_id):
+        db = get_db()
+        load_session(db, session_id, current_user_id())
+        return jsonify(timers=cooking.timers_json(db, session_id, now()))
+
+    @app.post("/api/sessions/<int:session_id>/timers")
+    def add_timer(session_id):
+        user_id, db = current_user_id(), get_db()
+        load_session(db, session_id, user_id)  # 404 before reading the body
+        name, seconds = cooking.validate_timer(limited_body(TOOL_BODY_BYTES))
+        at = now()
+        with transaction(db):
+            cooking.create_timer(db, load_session(db, session_id, user_id), name, seconds, at)
+        return jsonify(timers=cooking.timers_json(db, session_id, at)), 201
+
+    @app.post("/api/sessions/<int:session_id>/timers/<int:timer_id>/<any(ack, cancel):action>")
+    def finish_timer(session_id, timer_id, action):
+        user_id, db, at = current_user_id(), get_db(), now()
+        with transaction(db):  # idempotent; only this session's timer, never a newer session's
+            load_session(db, session_id, user_id)
+            cooking.finish_timer(db, session_id, timer_id, action, at)
+        return jsonify(timers=cooking.timers_json(db, session_id, at))
+
+    @app.get("/api/sessions/<int:session_id>/checklist")
+    def get_checklist(session_id):
+        row = load_session(get_db(), session_id, current_user_id())
+        return jsonify(checklist=cooking.checklist_json(row, snapshot(row)))
+
+    @app.put("/api/sessions/<int:session_id>/checklist")
+    def put_checklist(session_id):
+        user_id, db = current_user_id(), get_db()
+        load_session(db, session_id, user_id)
+        body = limited_body(TOOL_BODY_BYTES)
+        with transaction(db):  # all items apply or none do
+            row = load_session(db, session_id, user_id)
+            if row["status"] != "active":
+                raise CookingError(409, "The checklist can only change during an active session.")
+            state = cooking.updated_checklist(row, snapshot(row), body)
+            update_session(db, session_id, {"checklist": json.dumps(state)})
+        row = load_session(db, session_id, user_id)
+        return jsonify(checklist=cooking.checklist_json(row, snapshot(row)))
+
+    @app.post("/api/sessions/<int:session_id>/alerts/<int:alert_id>/ack")
+    def ack_alert(session_id, alert_id):
+        user_id, db, at = current_user_id(), get_db(), now()
+        with transaction(db):
+            load_session(db, session_id, user_id)
+            cooking.ack_alert(db, session_id, alert_id, at)
+        return respond_session(session_id, user_id)
+
+    @app.get("/api/history")
+    def history():
+        limit = cooking.history_limit(request.args.get("limit"))
+        return jsonify(sessions=cooking.history_summaries(get_db(), current_user_id(), limit))
+
+    @app.get("/api/history/<int:session_id>")
+    def history_detail(session_id):
+        db = get_db()
+        return jsonify(session=session_json(db, load_session(db, session_id, current_user_id())))
+
+    @app.put("/api/history/<int:session_id>/note")
+    def history_note(session_id):
+        user_id, db = current_user_id(), get_db()
+        load_session(db, session_id, user_id)
+        note = cooking.validate_note(limited_body(TOOL_BODY_BYTES))
+        with transaction(db):
+            load_session(db, session_id, user_id)
+            update_session(db, session_id, {"note": note})
+        return jsonify(session=session_json(db, load_session(db, session_id, user_id)))
 
 
 NO_AI_CONNECTION = "Save your own AWS connection in Settings to use the recipe maker."

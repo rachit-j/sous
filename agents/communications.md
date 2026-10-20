@@ -1,5 +1,11 @@
 # Agent communication log
 
+## V2.3 backend and UI integration
+
+Opus implemented named timers, private history/notes, snapshot preparation checklists, advisory hazard/emergency fields and monitoring freshness. Luna independently reviewed authorization and stale-result paths. Root accepted the additive monitoring-health assertion update: failed observations alter the derived health report while cooking state remains identical. Review found two actionable alert-delivery gaps; Claude Sonnet corrected emergency priority at the20-active cap and proactive advisory voice events, with regressions. Root observed62focused tests pass14.655s and final166-test discovery48.782s (10optional skips).
+
+Luna's isolated UI was transferred explicitly without its old backend. Two fixture WebKit cases passed17.730s; real two-user account/private-library/camera cleanup passed5.403s. Original22-case browser run has one status-copy regression after Settings return and one intentional live-model skip; Luna owns the bounded fix and a real cooking-tool flow. Root owns container verification on reserved5051, documentation and commits. No personal browsers, physical devices or paid AWS calls. Normal5050 remains V1 until checks pass. TestFlight/native work is explicitly deferred.
+
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
 ## V2 discovery — 2026-10-20

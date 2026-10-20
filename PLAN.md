@@ -89,7 +89,7 @@ Approved additions: personal cooking notes/history, pantry-aware suggestions, se
 
 - [x] V2.1: backend accounts, session ownership, per-user settings/vaults and authorization tests (account UI integrates in V2.4).
 - [x] V2.2: backend global/personal recipe library, generation, profile inputs and validation tests.
-- [ ] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
+- [x] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
 - [ ] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
 - [ ] V2.5: independent isolation/security review, Linux/Compose verification and delivery docs.
 

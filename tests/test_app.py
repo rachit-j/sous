@@ -29,6 +29,11 @@ def data_url(raw):
     return "data:image/jpeg;base64," + base64.b64encode(raw).decode()
 
 
+def without_health(session):
+    """Session state without the derived monitoring freshness report (which records attempts)."""
+    return {k: v for k, v in session.items() if k != "monitoring_health"}
+
+
 def observation(complete=True, confidence=0.9, alert=None):
     return {"activity": "whisking", "evidence": "yellow eggs in bowl",
             "confidence": confidence, "step_complete": complete, "alert": alert}
@@ -315,7 +320,10 @@ class ObservationTests(SousTestCase):
             resp = self.observe(self.session)
             self.assertEqual(resp.status_code, 502)
             self.assertNotIn("sk-leak", resp.get_data(as_text=True))
-        self.assertEqual(self.current(), before)
+        after = self.current()
+        # Cooking state is untouched; only the derived freshness report shows the failed attempts.
+        self.assertEqual(without_health(after), without_health(before))
+        self.assertEqual(after["monitoring_health"]["state"], "error")
         with closing(sqlite3.connect(self.db_path)) as db:
             errors = [r[0] for r in db.execute("SELECT error FROM observations ORDER BY id")]
         self.assertEqual(errors[0], "RuntimeError")
@@ -402,7 +410,9 @@ class ProviderIntegrationTests(SousTestCase):
         resp = self.observe(self.session)
         self.assertEqual(resp.status_code, 502)
         self.assertNotIn("sk-leak", resp.get_data(as_text=True))
-        self.assertEqual(self.client.get(f"/api/sessions/{self.session['id']}").get_json(), before)
+        after = self.client.get(f"/api/sessions/{self.session['id']}").get_json()
+        self.assertEqual(without_health(after), without_health(before))  # no cooking-state change
+        self.assertEqual(after["monitoring_health"]["state"], "error")
         with closing(sqlite3.connect(self.db_path)) as db:
             self.assertEqual(db.execute("SELECT error FROM observations").fetchone()[0],
                              "Could not reach the provider.")

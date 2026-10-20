@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2.1–V2.2 backend verified; preparing V2.3 cooking tools and advisory alerts on feature/v2.
-- Active: normal V1 Compose stack/data on5050 remains untouched during V2 development; all new tests use temporary data. Isolated V2 UI worktree is awaiting integration.
+- Phase: V2 backend verified through cooking tools; integrated UI and container verification on feature/v2.
+- Active: normal V1 Compose stack/data on5050 remains untouched. New UI is integrated; one voice status-copy regression is being corrected. Disposable V2 verification stack uses5051.
 - Blockers: no external permission/authentication blocker. V2 remains under implementation and requires full integration/browser/container verification before delivery. Real AI/audio quality remains for the user's live trial.
-- Next checkpoint: commit recipe backend, integrate the new cooking-tool tests and implement timers/history/prep/advisory alerts. UI remains isolated until the full backend contracts are available. Local brag-output/ is preserved and ignored.
+- Next checkpoint: finish real cooking-tool browser flows, voice regression and Linux/Compose persistence checks. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
 
 ## Milestones
+
+- 2026-10-20: V2.3 focused cooking/provider/voice tests passed62cases14.655s. Independent Luna review found emergency escalation at a full alert cap could be dropped and safety alerts were not proactively spoken. Claude corrected bounded priority replacement and one advisory voice update per newly stored alert. Full discovery passed166 reported tests48.782s (10optional skips). Real two-user WebKit account/library/media-cleanup case passed5.403s;2fixture UI cases passed17.730s. Original browser run reported22cases75.726s,1voice status-copy failure/1live skip; fix underway. Linux image build and Compose validation passed; normal app remains unchanged.
 
 - 2026-10-20: V2.2 new API tests RED:16cases7.287s,15failures/1missing-field error on absent routes. Opus implemented library/profile/scaling/own-AWS generation;16 focused tests passed7.391s. Sonnet corrected the small bundled-scope contract to global/read-only. Full discovery passed139 reported tests in39.832s (7optional skips), whitespace clean; independent Luna review found no actionable P1/P2. Separate cooking-tool test worktree passed123-test baseline42.154s;16new tool tests reproduced missing behavior in2.722s. No normal Docker changes or live AWS.
 

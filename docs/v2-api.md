@@ -24,7 +24,7 @@ Library IDs are opaque server identifiers. Bundled recipes retain existing IDs. 
 - POST `/api/recipes`: `{recipe,scope:"personal"|"global"}` →201 saved recipe. Only admins may request global.
 - GET/PUT/DELETE `/api/recipes/<id>`: own personal or accessible global; PUT `{recipe}` preserves identity/scope.
 - POST `/api/recipes/<id>/copy`: `{}` →201 personal copy.
-- POST `/api/recipes/generate`: `{dish,ingredients,equipment,servings,time_budget_minutes}`. Ingredients/equipment bounded string arrays, servings integer1–24, time budget integer1–1440. Use caller's saved model and unlocked AWS connection. Return `{recipe,warnings}` without saving anything. Rate/concurrency/timeout/output limits are server-enforced.
+- POST `/api/recipes/generate`: `{dish,ingredients,pantry,equipment,servings,time_budget_minutes}`. Pantry is optional; ingredient/pantry/equipment inputs are bounded string arrays, servings integer1–24, time budget integer1–1440. Use caller's saved model and unlocked AWS connection. Return `{recipe,warnings}` without saving anything. Rate/concurrency/timeout/output limits are server-enforced.
 - POST `/api/recipes/<id>/scale`: `{servings}` →reviewable `{recipe,warnings}` draft; never mutate original or active session.
 
 Keep V1 `ingredients` as display strings and existing step fields. Recipe metadata may add `servings` (default1), `equipment` (default empty), and optional structured `ingredient_details` aligned with ingredients for numeric scaling. Unknown quantities remain unchanged with a review warning. Never multiply free-text cooking times, temperatures or step instructions. Generation validates the same schema as manual editing; malformed/oversized outputs never enter the catalog.

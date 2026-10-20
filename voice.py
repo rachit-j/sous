@@ -64,7 +64,8 @@ TOOL_UNAVAILABLE = json.dumps({"error": "This tool is not available."})
 
 AUTH_FAILED = "Voice could not start. Reload the page and try again."
 BUSY = "Voice is busy. Try again in a moment."
-ALREADY_ACTIVE = "Voice guidance is already active in another tab. Stop it there first."
+# One stream instance-wide for this private release; the message names no account or session.
+ALREADY_ACTIVE = "Voice guidance is already in use on this server. Stop it there or try again later."
 TOO_MANY = "Voice was started too often. Wait a minute and try again."
 NOT_ACTIVE = "Voice guidance needs an active cooking session."
 LOCKED = "Settings are locked. Unlock them in Settings to use voice; manual controls still work."
@@ -825,10 +826,15 @@ class VoiceBridge:
 
 # --- WebSocket controller (request thread) ----------------------------------
 
-def serve(ws, session_id, expected_csrf, db, voice_id):
-    """Handle one voice WebSocket. Always ends with a stopped/error message unless disconnected."""
+def serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid):
+    """Handle one voice WebSocket for an authenticated account. Always ends with a stopped/error
+    message unless disconnected.
+
+    vault is that account's Vault; only sessions owned by user_id are served. auth_valid() reports
+    whether the caller's login is still live and is polled while streaming.
+    """
     try:
-        terminal = _serve(ws, session_id, expected_csrf, db, voice_id)
+        terminal = _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid)
     except ConnectionClosed:
         return
     except Exception as exc:
@@ -844,25 +850,26 @@ def _error(message):
     return {"type": "error", "message": message}
 
 
-def _serve(ws, session_id, expected_csrf, db, voice_id):
+def _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid):
     state = current_app.extensions["sous_voice"]
     if not state["pending"].acquire(blocking=False):
         return _error(BUSY)
     try:
-        authenticated = _authenticate(ws, expected_csrf)
+        authenticated = _authenticate(ws, expected_csrf) and auth_valid()
     finally:
         state["pending"].release()
     if not authenticated:
         return _error(AUTH_FAILED)
 
-    row = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    row = db.execute("SELECT * FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
     if row is None or row["status"] != "active" or not row["recipe_snapshot"]:
         return _error(NOT_ACTIVE)
-    vault = current_app.extensions["sous_vault"]
-    available, reason = voice_status(vault)
-    connection = vault.connection()
-    if not available or connection is None or connection.region not in SUPPORTED_REGIONS:
-        return _error(reason or NO_CONNECTION)
+    # One atomic lease: any later lock/unlock/save changes the epoch, even with identical keys.
+    epoch, connection = vault.lease()
+    if connection is None:
+        return _error(voice_status(vault)[1] or NO_CONNECTION)  # locked or nothing saved
+    if connection.region not in SUPPORTED_REGIONS:
+        return _error(UNSUPPORTED_REGION)
     if voice_id not in VOICES:
         voice_id = DEFAULT_VOICE
     if not state["active"].acquire(blocking=False):
@@ -875,7 +882,8 @@ def _serve(ws, session_id, expected_csrf, db, voice_id):
             state["lingering"] = None
         if not _allow_start(state):
             return _error(TOO_MANY)
-        return _run(ws, state, state["open_stream"], db, session_id, row, vault, connection, voice_id)
+        return _run(ws, state, state["open_stream"], db, session_id, row, vault, epoch, connection, voice_id,
+                    auth_valid)
     finally:
         state["active"].release()
 
@@ -915,7 +923,7 @@ def _valid_pcm(data):
     return 2 <= len(data) <= MAX_AUDIO_FRAME and len(data) % 2 == 0
 
 
-def _run(ws, state, open_stream, db, session_id, row, vault, connection, voice_id):
+def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, voice_id, auth_valid):
     recipe = json.loads(row["recipe_snapshot"])
     clock = current_app.config["CLOCK"]
     at = clock()
@@ -951,17 +959,20 @@ def _run(ws, state, open_stream, db, session_id, row, vault, connection, voice_i
                     terminal = bridge.terminal()
                 continue
             now = time.monotonic()
-            current = vault.connection()
+            current_epoch, current = vault.lease()  # in-memory only; never an ambient lookup
             if now - started >= MAX_STREAM_SECONDS:
                 terminal = {"type": "stopped", "reason": "time_limit"}
             elif not ready and now - started > CONNECT_TIMEOUT + 1:
                 terminal = _error(CONNECT_FAILED)
             elif ready and now - last_audio > IDLE_TIMEOUT:
                 terminal = {"type": "stopped", "reason": "idle"}
-            elif current != connection:
+            elif current_epoch != epoch:  # lock, unlock or save since the lease, even with equal keys
                 terminal = {"type": "stopped", "reason": "locked" if current is None else "settings_changed"}
             elif now >= next_poll:
                 next_poll = now + POLL_INTERVAL
+                if not auth_valid():  # logout, password change or reset revoked this login
+                    terminal = {"type": "stopped", "reason": "signed_out"}
+                    break
                 update, end = watcher.poll(clock())
                 if end:
                     terminal = {"type": "stopped", "reason": end}

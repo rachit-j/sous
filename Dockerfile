@@ -11,12 +11,13 @@ COPY requirements.txt ./
 RUN pip install -r requirements.txt
 
 # Allowlist: only runtime files. Docs, agent notes, tests and dev requirements stay out.
-COPY app.py providers.py recipes.py settings.py voice.py ./
+COPY accounts.py app.py providers.py recipes.py settings.py voice.py ./
 COPY recipes/ ./recipes/
 COPY templates/ ./templates/
 COPY static/ ./static/
 
-# SQLite database, the generated secret key and the encrypted settings.vault live here (mounted as a named volume by compose.yaml).
+# SQLite database, the generated secret key and the encrypted per-account vaults (users/<id>/settings.vault;
+# a V1 settings.vault is preserved untouched) live here (mounted as a named volume by compose.yaml).
 RUN useradd --system --uid 10001 --no-create-home sous \
     && mkdir -p /app/instance \
     && chown sous:sous /app/instance
@@ -24,8 +25,8 @@ USER sous
 
 EXPOSE 5000
 
-# One worker is required: the per-session analysis lock, the unlocked settings vault and the
-# voice stream limits are process-local. Threads handle concurrent requests; a voice WebSocket
+# One worker is required: the per-session analysis lock, the unlocked account vaults, the login
+# throttle and the voice stream limits are process-local. Threads handle concurrent requests; a voice WebSocket
 # holds one thread for its lifetime (at most 1 active + 2 authenticating), so 8 leaves room for
 # normal requests. --timeout is gunicorn's worker heartbeat timeout, not a per-request limit;
 # 210 s is above the 180 s local-model read timeout.

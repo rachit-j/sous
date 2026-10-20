@@ -2,7 +2,7 @@
 
 ## Decisions
 
-Flask serves Jinja HTML and a small JSON API. Plain browser JavaScript owns webcam capture, optional browser speech, and UI rendering. SQLite is sufficient for one local cook and makes sessions/events inspectable without another service. Recipe JSON under `recipes/` supplies all instructions, ingredients and visual cues; scrambled eggs is only the first example. These choices prioritize fast iteration.
+Flask serves Jinja HTML and a JSON API. Plain JavaScript owns webcam capture, optional speech and rendering. V2 targets a few trusted accounts on one private instance; SQLite stores revocable logins and account-owned cooking state/preferences. Bundled recipe JSON remains shared, with a database library for personal and additional global recipes. These choices prioritize iteration and a reusable API for a future client.
 
 Model adapters share a normalized observation contract; the app's state machine, rather than a model, controls step advancement. See [API contract](api.md) for the precise boundary and [provider setup](providers.md) for configuration.
 
@@ -30,7 +30,7 @@ Each step has instructions and visual completion cues. Two consecutive model obs
 
 Each session saves a recipe snapshot. Config edits apply to new sessions; ongoing sessions continue with their original instructions, cues and step count. Existing databases gain the snapshot column through an additive migration. See [structured recipes](recipes.md).
 
-Only one model request per session runs at once. Network calls happen outside SQLite transactions; state is checked again before applying the result. This MVP uses one server process and one active browser tab. A distributed worker/multi-user system would require a different concurrency mechanism.
+Only one model request per cooking session runs at once. Network calls happen outside SQLite transactions; login, ownership, revision and credential validity are checked again before applying the result. A database constraint enforces one active cook per user. One server process retains in-memory vaults and bounded stream limits; distributed workers require a different synchronization/key lifecycle design.
 
 The Docker image uses one Gunicorn worker with eight threads, so manual controls can be served during model calls and a voice WebSocket while per-process locks remain valid. Voice is capped at one active stream and two authenticating sockets. The app runs as a non-root user and keeps SQLite and its signing secret in a named volume. See [Docker setup](docker.md).
 

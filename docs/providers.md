@@ -1,6 +1,6 @@
 # Provider setup
 
-Use **Settings** for Bedrock credentials, region and model selection, with passphrase-encrypted credential storage. Environment configuration remains supported for existing provider setups. All saved secrets stay on the server after submission; the settings API never returns them. Sous never downloads models or silently switches providers. See [secure settings](settings.md).
+Sign in and use **Settings** for your own Bedrock credentials, region and model selection. Each account has independent encrypted storage. Shared cloud environment keys are never used for account-facing calls. Ollama remains an optional shared local service. Saved secrets stay server-side; the API never returns them. Sous never downloads models or silently switches providers. See [secure settings](settings.md).
 
 ## Ollama
 
@@ -12,11 +12,11 @@ The first request may load a cold model into memory. Sous allows a longer local 
 
 ## OpenAI
 
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` to an image-capable API model available to your account. A ChatGPT subscription/login does not configure this application API key. The adapter uses the Responses API with image inputs. [Official vision guide](https://developers.openai.com/api/docs/guides/images-vision).
+The low-level Responses adapter remains in source, but V2 does not expose shared server OpenAI keys to users. Per-user OpenAI setup is outside this branch.
 
 ## Anthropic
 
-Set `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` to an available Claude model accepting image input. Claude Code authentication is separate from this application's API configuration. The adapter uses the Messages API. [Official vision guide](https://platform.claude.com/docs/en/build-with-claude/vision).
+The low-level Messages adapter remains in source, but V2 does not expose shared server Anthropic keys to users. Claude Code developer authentication is unrelated to cooking inference.
 
 ## AWS Bedrock
 
@@ -24,7 +24,7 @@ Open **Settings**, create an unlock passphrase, and save your AWS access key ID,
 
 Discovery uses AWS metadata APIs and does not invoke a model or send camera images. Listing permission may be absent even if invocation works, so a custom ID remains supported. Listings do not guarantee access or Converse compatibility. Your credentials must permit invoking the selected model/profile in the chosen region. For least privilege, grant only the model invocation and discovery operations you need.
 
-Legacy setups can still use `AWS_REGION`, `BEDROCK_MODEL_ID` and the AWS credential chain, optionally `AWS_PROFILE`. Managed saved credentials take precedence; a locked managed connection must be unlocked rather than silently switching identity. Never paste keys into project documentation, commands, or issue reports.
+V2 ignores ambient AWS keys, AWS_PROFILE and legacy cloud defaults for account-facing calls, including when a user has no saved connection or deletes it. Never paste keys into documentation, commands or issue reports.
 
 The adapter uses Boto3's Bedrock Runtime Converse API. Image/model support varies; verify your selected model/region in AWS. [Converse API](https://docs.aws.amazon.com/boto3/latest/reference/services/bedrock-runtime/client/converse.html), [model compatibility](https://docs.aws.amazon.com/bedrock/latest/userguide/models-api-compatibility.html).
 

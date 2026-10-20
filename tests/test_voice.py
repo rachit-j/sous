@@ -11,8 +11,9 @@ from unittest import mock
 
 from simple_websocket import ConnectionClosed
 
+import accounts
 import voice
-from app import get_db, get_voice_id
+from app import get_db, serve_voice
 from settings import BedrockConnection
 from tests.test_settings import KEY_ID, PASSPHRASE, SECRET, TOKEN, SettingsTestCase
 
@@ -160,11 +161,14 @@ class VoiceTestCase(SettingsTestCase):
         self.save_bedrock(session_token=TOKEN, **connection)
         self.session = self.start()
 
-    def serve(self, ws, session_id=None, expect_thread_exit=True):
+    def serve(self, ws, session_id=None, expect_thread_exit=True, client=None):
+        """Run the voice controller with a browser's real signed session cookie (login resolved
+        server-side by app.serve_voice), as the route does after its pre-upgrade checks."""
         sid = session_id or self.session["id"]
-        with self.app.test_request_context(f"/api/sessions/{sid}/voice"):
-            db = get_db()
-            voice.serve(ws, sid, self.token, db, get_voice_id(db))
+        cookie = (client or self.client).get_cookie("session")
+        with self.app.test_request_context(f"/api/sessions/{sid}/voice",
+                                           headers={"Cookie": f"session={cookie.value}"}):
+            serve_voice(ws, sid)
         if expect_thread_exit:
             self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
         return ws.sent
@@ -294,6 +298,33 @@ class VoiceAuthTests(VoiceTestCase):
         state["starts"].extend([time.monotonic()] * voice.START_LIMIT)
         self.assert_rejected(self.serve(FakeWS(start)), voice.TOO_MANY)
 
+    def test_signed_out_or_other_account_never_opens_aws(self):
+        resp = self.post("/api/users", {"username": "other-cook", "password": "other-cook-password-01"})
+        self.assertEqual(resp.status_code, 201, resp.get_json())
+        other = self.app.test_client()
+        token = other.get("/api/auth").get_json()["csrf_token"]
+        resp = other.post("/api/auth/login", json={"username": "other-cook", "password": "other-cook-password-01"},
+                          headers={"X-CSRF-Token": token})
+        self.assertEqual(resp.status_code, 200)
+        other_token = resp.get_json()["csrf_token"]
+        # Another account's socket for this session: same answer as a missing session.
+        self.assert_rejected(self.serve(FakeWS(start_message(other_token)), client=other), voice.NOT_ACTIVE)
+        upgrade = {"Upgrade": "websocket", "Connection": "Upgrade", "Origin": "http://localhost"}
+        resp = other.get(f"/api/sessions/{self.session['id']}/voice", headers=upgrade)
+        self.assertEqual(resp.status_code, 404)  # refused before the upgrade
+
+        signed_out = self.app.test_client()
+        signed_out.get("/api/auth")
+        resp = signed_out.get(f"/api/sessions/{self.session['id']}/voice", headers=upgrade)
+        self.assertEqual(resp.status_code, 401)
+        self.assert_rejected(self.serve(FakeWS(start_message(self.token)), client=signed_out), voice.AUTH_FAILED)
+
+        jar = self.client.get_cookie("session")
+        self.assertEqual(self.post("/api/auth/logout", {}).status_code, 200)
+        replay = self.app.test_client()
+        replay.set_cookie("session", jar.value)
+        self.assert_rejected(self.serve(FakeWS(start_message(self.token)), client=replay), voice.AUTH_FAILED)
+
 
 class VoiceStreamTests(VoiceTestCase):
     def setUp(self):
@@ -403,6 +434,30 @@ class VoiceStreamTests(VoiceTestCase):
 
         sent, stream, _ = self.converse(run(lambda: self.act(self.session["id"], "end")))
         self.assertEqual(sent[-1], {"type": "stopped", "reason": "session_ended"})
+        self.assertTrue(stream.closed.is_set())
+
+    def test_lock_then_unlock_with_same_credentials_stops_stream(self):
+        # Both happen within one browser-message turn, before the next poll: the connection is
+        # equal afterwards, but the lease that opened the stream was revoked.
+        def relock():
+            self.vault().lock()
+            self.vault().unlock(PASSPHRASE)
+        sent, stream, calls = self.converse(run(relock))
+        self.assertEqual(sent[-1], {"type": "stopped", "reason": "settings_changed"})
+        self.assertTrue(stream.closed.is_set())
+        self.assertEqual(len(calls), 1)  # no automatic restart
+        self.assertEqual(self.vault().connection(), calls[0])  # same keys, still a new lease
+
+    def test_expired_login_or_logout_stops_stream(self):
+        # The login expires server-side while the vault stays unlocked: the poll stops the stream.
+        sent, stream, _ = self.converse(run(lambda: setattr(self, "clock", self.clock + accounts.SESSION_TTL + 1)))
+        self.assertEqual(sent[-1], {"type": "stopped", "reason": "signed_out"})
+        self.assertTrue(stream.closed.is_set())
+
+        self.client, self.token = self.browser(self.app)
+        self.post("/api/settings/unlock", {"passphrase": PASSPHRASE})
+        sent, stream, _ = self.converse(run(lambda: self.post("/api/auth/logout", {})))
+        self.assertIn(sent[-1], ({"type": "stopped", "reason": "signed_out"}, {"type": "stopped", "reason": "locked"}))
         self.assertTrue(stream.closed.is_set())
 
     def test_stream_deadline_idle_and_upstream_end(self):

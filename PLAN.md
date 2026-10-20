@@ -87,7 +87,7 @@ Defaults for implementation: first administrator setup, administrator-created ac
 
 Approved additions: personal cooking notes/history, pantry-aware suggestions, serving-size scaling, multiple named timers, pre-cook preparation checks and a monitoring-health display. Household handoff is deferred. Codex coordinates Opus backend and Luna frontend/review in verified slices:
 
-- [ ] V2.1: accounts, session ownership, per-user settings/vaults and authorization tests.
+- [x] V2.1: backend accounts, session ownership, per-user settings/vaults and authorization tests (account UI integrates in V2.4).
 - [ ] V2.2: global/personal recipe library, generation, profile inputs and validation tests.
 - [ ] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
 - [ ] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.

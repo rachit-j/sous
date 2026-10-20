@@ -17,6 +17,7 @@ import os
 import re
 import tempfile
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -150,7 +151,7 @@ def _valid_payload(data):
 # --- Vault ----------------------------------------------------------------
 
 class Vault:
-    """Thread-safe encrypted store. One instance per app; starts locked."""
+    """Thread-safe encrypted store. One instance per account (app.user_vault); starts locked."""
 
     def __init__(self, path, clock):
         self.path = path
@@ -158,6 +159,29 @@ class Vault:
         self._lock = threading.RLock()
         self._fernet = self._data = self._salt = None
         self._failures = collections.deque(maxlen=UNLOCK_ATTEMPTS)  # bounded failure timestamps
+        self._epoch = 0  # bumped on every unlock/lock/save so in-flight AWS results can be rejected
+
+    @property
+    def epoch(self):
+        with self._lock:
+            return self._epoch
+
+    def lease(self):
+        """Atomic (epoch, BedrockConnection or None) captured before slow work such as inference."""
+        with self._lock:
+            return self._epoch, self.connection()
+
+    @contextmanager
+    def guard(self):
+        """Hold off lock/unlock/save/create while a caller validates a lease and commits its result.
+
+        Lock order is always database write lock first, then this guard, released after COMMIT
+        (app.transaction(db, guard=...)). Vault methods never touch the database, so no path waits
+        for the database while holding the guard except that commit. Never hold it across network
+        calls; unlock and create hold it during key derivation, which can delay such a commit.
+        """
+        with self._lock:
+            yield
 
     @property
     def initialized(self):
@@ -214,6 +238,7 @@ class Vault:
             data = {"bedrock": None}
             self._write(salt, fernet, data)
             self._fernet, self._data = fernet, data
+            self._epoch += 1
 
     def unlock(self, passphrase):
         secret = validate_passphrase(passphrase)
@@ -237,10 +262,12 @@ class Vault:
                 raise SettingsError(403, BAD_UNLOCK) from None
             self._failures.clear()
             self._fernet, self._data, self._salt = fernet, data, salt
+            self._epoch += 1
 
     def lock(self):
         with self._lock:
             self._fernet = self._data = self._salt = None
+            self._epoch += 1
 
     def save_bedrock(self, conn):
         """Persist a new connection dict (or None to delete it). Requires unlocked vault."""
@@ -250,6 +277,7 @@ class Vault:
             data = {**self._data, "bedrock": dict(conn) if conn else None}
             self._write(self._salt, self._fernet, data)
             self._data = data
+            self._epoch += 1
 
     # New files omit source metadata: only the authenticated payload determines whether a managed
     # connection exists. Older version-1 files may contain managed_bedrock; it is ignored.
@@ -259,7 +287,7 @@ class Vault:
         envelope = {"version": VAULT_VERSION, "kdf": SCRYPT, "salt": base64.b64encode(salt).decode("ascii"),
                     "token": token}
         directory = os.path.dirname(os.path.abspath(self.path))
-        os.makedirs(directory, exist_ok=True)
+        os.makedirs(directory, mode=0o700, exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".settings-", suffix=".tmp", dir=directory)  # created 0600
         try:
             with os.fdopen(fd, "w") as fh:

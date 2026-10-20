@@ -8,7 +8,7 @@ Run Sous in a container with no Python or Node installed on the host. You still 
 docker compose up --build
 ```
 
-Open <http://127.0.0.1:5050>. The port is published on loopback only, so other machines cannot reach it. Use `SOUS_PORT=5051 docker compose up --build` (or set `SOUS_PORT` in `.env`) for another host port. 5050 is the default because macOS AirPlay occupies 5000.
+Open <http://127.0.0.1:5050>, create the first administrator, and add other accounts in Settings. Each cook supplies their own AWS connection. The port is loopback-only; other machines cannot reach it. Use SOUS_PORT to choose another host port. See [accounts and preserved V1 data](accounts.md).
 
 No `.env` or provider credentials are required to start. Without them you can still use manual steps and timers and type a model ID in the interface; visual monitoring needs a reachable provider.
 
@@ -23,16 +23,14 @@ Rebuild after changing application code, recipes or `requirements.txt`: `docker 
 
 ## Persistent data
 
-The named volume `sous-instance` is mounted at `/app/instance` and holds the SQLite database, generated session-signing secret, encrypted provider vault and nonsecret preferences. It survives `stop`, `down`, rebuilds and restarts, so sessions, timers, recipe snapshots and settings persist. Monitoring is paused after restart and needs Resume; the credential vault locks and needs your passphrase. Avoid `docker compose down -v` or `docker volume rm`: they delete all Sous data.
+The named volume sous-instance is mounted at /app/instance and holds SQLite accounts/data, the signing secret, and per-user encrypted vaults beneath users/<id>/. It survives stop/down/rebuild/restart. Monitoring pauses and every vault locks after restart. Preserve the volume: down -v or volume rm deletes all Sous data. V1 single-user rows and the original vault are retained but unassigned to new accounts.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set only what you use. Compose reads it for interpolation and passes these variables to the server process (never to the browser, never baked into the image):
+Use .env only for instance-local options such as host port and Ollama. AWS setup belongs to each signed-in account's Settings:
 
 - `OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`), `OLLAMA_MODEL` (default `qwen3-vl:8b`)
-- `OPENAI_API_KEY`, `OPENAI_MODEL`
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
-- `AWS_REGION`, `BEDROCK_MODEL_ID`, and optionally `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+- Shared cloud environment keys/defaults are ignored by V2 account-facing calls.
 
 Variables you leave unset are not passed into the container. After editing `.env`, run `docker compose up -d` to recreate the container. Do not paste keys into commands, logs or issue reports.
 
@@ -47,11 +45,7 @@ Variables you leave unset are not passed into the container. After editing `.env
 
 Use the in-app **Settings** page to save credentials encrypted with your unlock passphrase, set region and choose a model. No `.env` is required. Unlock after every server restart; keep your passphrase separately because it is not recoverable. The app does not store the unlock key alongside its data. See [secure settings](settings.md).
 
-Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Legacy environment options remain:
-
-- Pass temporary or static keys through `.env`: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optionally `AWS_SESSION_TOKEN`, plus `AWS_REGION` and `BEDROCK_MODEL_ID`.
-- For SSO or named profiles, run Sous directly with `flask --app app run` where the profile works, or export short-lived credentials from your tooling into `.env`.
-- If you deliberately want a credentials directory, add your own read-only bind mount in a local `compose.override.yaml` and set `AWS_PROFILE` there. That is your choice and is not configured by default.
+Sous does not mount ~/.aws. V2 never falls back to AWS_PROFILE, server environment keys or another user's connection. Login password changes and administrator resets do not recover or rewrite the independent vault passphrase.
 
 ## Runtime notes
 
@@ -60,7 +54,7 @@ Sous does not mount `~/.aws`, and `AWS_PROFILE` is not passed. Legacy environmen
 - The process runs as the non-root user `sous` (uid 10001). Gunicorn's worker timeout is 210 s (a heartbeat limit, not a hard per-request limit; provider calls have their own timeouts, 180 s for local Ollama). On stop or restart, in-flight requests get up to 210 s to finish (Compose waits up to 220 s), so stopping during a cold-model analysis can take a while.
 - The image contains only runtime code, templates, static files and `recipes/*.json`; docs, tests and agent files are excluded by `.dockerignore` and the `COPY` allowlist.
 - The image includes the pinned official AWS streaming SDK and CRT HTTP/2 transport. [Conversational voice](voice.md) uses saved, unlocked credentials and the browser microphone; no host audio-device mount or additional service is required.
-- There is no container healthcheck: the slim image has no `curl`, and none is added just for that. Check `http://127.0.0.1:5050/api/config` instead.
+- There is no container healthcheck. GET http://127.0.0.1:5050/api/auth checks availability without exposing account data; config/settings require login.
 - The app only accepts `localhost`, `127.0.0.1` and `[::1]` Host headers, so use those to browse. Camera access works on `localhost` origins.
 
 ## Optional container tests

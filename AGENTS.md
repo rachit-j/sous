@@ -27,6 +27,8 @@ Read CC-Instructions.md before delegating to Claude Code.
 - Codex is authorized to commit frequently after inspecting and verifying milestones. Delegated agents must not commit. No pushes, publishing, deployments, contacting others, or destructive Git recovery without explicit authorization.
 - Do not read/print credentials. Keep secrets, frames, raw audio, SQLite files, CLI session artifacts, and environment files out of Git.
 - User-authorized in-app Bedrock credentials use a passphrase-encrypted vault; unlock after server restart. Never persist the unlock key/passphrase beside ciphertext, echo stored secrets to UI, or modify process environment to apply saved credentials. Use synthetic credentials in tests. Snapshot interval is configurable from1–15 seconds, default10.
+- V2 targets a few trusted users on one private instance. Every account supplies its own AWS connection: no other user's vault or ambient cloud credentials. Enforce ownership on HTTP, WebSocket, late inference results, recipes, timers, history and notes. Preserve unowned V1 data without automatically assigning it. See docs/v2.md and docs/v2-api.md.
+- Web V2 comes first. User explicitly deferred TestFlight/native iOS because there is no paid Apple developer account. Keep reusable API boundaries; do not create or submit an iOS app during this work.
 
 ## Implementation quality
 

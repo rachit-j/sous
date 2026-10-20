@@ -20,6 +20,9 @@ from app import create_app
 FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
 INDEX = '<meta name="csrf-token" content="{{ csrf_token }}">'
 START = {"recipe_id": "scrambled-eggs", "provider": "ollama", "model": "llava", "mode": "monitoring"}
+# Synthetic fixture account: the first browser sets it up through POST /api/auth/setup, later
+# browsers (other tabs, restarts) sign in through POST /api/auth/login.
+COOK = {"username": "cook", "password": "synthetic-cook-password-01"}
 
 
 def data_url(raw):
@@ -48,10 +51,18 @@ class SousTestCase(unittest.TestCase):
         return app
 
     def browser(self, app):
+        """A new browser signed in as the fixture cook through the real auth API."""
         client = app.test_client()
         page = client.get("/")
         self.assertEqual(page.status_code, 200)
-        return client, re.search(r'content="([^"]+)"', page.get_data(as_text=True)).group(1)
+        token = re.search(r'content="([^"]+)"', page.get_data(as_text=True)).group(1)
+        setup = client.get("/api/auth").get_json()["setup_required"]
+        resp = client.post("/api/auth/setup" if setup else "/api/auth/login", json=COOK,
+                           headers={"X-CSRF-Token": token})
+        self.assertEqual(resp.status_code, 201 if setup else 200, resp.get_json())
+        data = resp.get_json()
+        self.user_id = data["user"]["id"]
+        return client, data["csrf_token"]  # rotated on sign-in
 
     def post(self, path, body, client=None, token=None, **headers):
         headers.setdefault("X-CSRF-Token", token or self.token)
@@ -74,14 +85,20 @@ class SousTestCase(unittest.TestCase):
 
 class SecurityTests(SousTestCase):
     def test_config_lists_recipe_and_providers_without_secrets(self):
-        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-very-secret", "OPENAI_MODEL": "gpt-x"}):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-very-secret", "OPENAI_MODEL": "gpt-x",
+                                          "OLLAMA_MODEL": "llava"}):
             resp = self.client.get("/api/config")
+            refused = self.post("/api/sessions", {**START, "provider": "openai", "model": "gpt-x"})
         data = resp.get_json()
         self.assertNotIn("sk-very-secret", resp.get_data(as_text=True))
         self.assertEqual(data["sample_interval"], 10)
         self.assertEqual(data["recipes"][0]["id"], "scrambled-eggs")  # first bundled sample
+        # V2: shared server cloud keys never configure a provider for an account; Ollama stays shared.
         openai = next(p for p in data["providers"] if p["id"] == "openai")
-        self.assertEqual(openai, {"id": "openai", "name": "OpenAI", "configured": True, "default_model": "gpt-x"})
+        self.assertEqual(openai, {"id": "openai", "name": "OpenAI", "configured": False, "default_model": ""})
+        ollama = next(p for p in data["providers"] if p["id"] == "ollama")
+        self.assertEqual((ollama["configured"], ollama["default_model"]), (True, "llava"))
+        self.assertEqual(refused.status_code, 400)
 
     def test_post_without_or_with_wrong_csrf_token_is_rejected(self):
         resp = self.client.post("/api/sessions", json=START)
@@ -107,7 +124,8 @@ class SecurityTests(SousTestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("error", resp.get_json())
         for host in ("http://127.0.0.1:5000", "http://localhost:8000"):
-            self.assertEqual(self.client.get("/api/config", base_url=host).status_code, 200, host)
+            # Public auth state: the test client's cookie is scoped to "localhost", not these hosts.
+            self.assertEqual(self.client.get("/api/auth", base_url=host).status_code, 200, host)
 
     def test_secret_key_is_generated_once_and_reused(self):
         key_file = os.path.join(self.tmp.name, "instance", "secret_key")
@@ -505,9 +523,10 @@ CREATE TABLE events (
 
 
 class LegacyDatabaseTests(SousTestCase):
-    """Databases created before recipe snapshots upgrade in place without losing state."""
+    """V1 databases upgrade in place without losing state. Their rows stay on disk, unowned:
+    no account can see or act on them (docs/v2.md)."""
 
-    def legacy_app(self, recipe_id):
+    def legacy_db(self, recipe_id):
         path = os.path.join(self.tmp.name, "legacy.sqlite3")
         with closing(sqlite3.connect(path)) as db:
             db.executescript(LEGACY_SCHEMA)
@@ -520,32 +539,56 @@ class LegacyDatabaseTests(SousTestCase):
             db.execute("INSERT INTO events (session_id, kind, message, created_at) VALUES (1, 'note', 'Legacy event', ?)",
                        (self.clock,))
             db.commit()
-        client, token = self.browser(self.make_app(DATABASE=path))
-        action = lambda body: self.post("/api/sessions/1/actions", body, client=client, token=token)
-        return path, client, action
+        return path
 
-    def test_legacy_database_upgrades_and_backfills_snapshot(self):
-        path, client, action = self.legacy_app("scrambled-eggs")
-        s = client.get("/api/sessions/active").get_json()["session"]
-        self.assertEqual(s["recipe"]["id"], "scrambled-eggs")
-        self.assertEqual((s["step_index"], s["timer_deadline"]), (1, self.clock + 300))
-        self.assertEqual((s["monitoring"], s["revision"]), (False, 4))  # paused on restart, as before
-        self.assertIn("Legacy event", [e["message"] for e in s["events"]])
-        self.assertEqual(action({"action": "next"}).get_json()["step_index"], 2)
+    def legacy_row(self, path):
+        with closing(sqlite3.connect(path)) as db:
+            db.row_factory = sqlite3.Row
+            row = dict(db.execute("SELECT * FROM sessions WHERE id = 1").fetchone())
+            row["events"] = [r[0] for r in db.execute("SELECT message FROM events WHERE session_id = 1")]
+        return row
 
-        client, _ = self.browser(self.make_app(DATABASE=path))  # second startup is a no-op upgrade
-        s = client.get("/api/sessions/1").get_json()
-        self.assertEqual((s["recipe"]["id"], s["step_index"]), ("scrambled-eggs", 2))
+    def test_legacy_database_upgrades_in_place_and_stays_unclaimed(self):
+        path = self.legacy_db("scrambled-eggs")
+        client, token = self.browser(self.make_app(DATABASE=path))  # the first account on the upgraded file
+        row = self.legacy_row(path)
+        self.assertEqual(json.loads(row["recipe_snapshot"])["id"], "scrambled-eggs")  # snapshot backfilled
+        self.assertEqual((row["step_index"], row["timer_deadline"], row["status"]), (1, self.clock + 300, "active"))
+        self.assertEqual((row["monitoring"], row["revision"]), (0, 4))  # paused on restart, as before
+        self.assertIsNone(row["user_id"])  # never silently assigned to the new account
+        self.assertIn("Legacy event", row["events"])
 
-    def test_legacy_session_without_definition_can_still_end(self):
-        _, client, action = self.legacy_app("retired-recipe")
-        s = client.get("/api/sessions/active").get_json()["session"]
+        self.assertIsNone(client.get("/api/sessions/active").get_json()["session"])
+        self.assertEqual(client.get("/api/sessions/1").status_code, 404)
+        self.assertEqual(self.post("/api/sessions/1/actions", {"action": "next"},
+                                   client=client, token=token).status_code, 404)
+        own = self.post("/api/sessions", START, client=client, token=token)
+        self.assertEqual(own.status_code, 201)  # the unowned active row does not block the account
+        self.assertNotEqual(own.get_json()["id"], 1)
+
+        self.make_app(DATABASE=path)  # second startup is a no-op upgrade
+        row = self.legacy_row(path)
+        self.assertEqual((row["step_index"], row["revision"], row["status"], row["user_id"]), (1, 4, "active", None))
+
+    def test_session_without_definition_can_still_end(self):
+        path = self.legacy_db("retired-recipe")
+        self.make_app(DATABASE=path)
+        self.assertIsNone(self.legacy_row(path)["recipe_snapshot"])  # nothing substituted on upgrade
+
+        # The same rule for an owned session whose snapshot is unavailable.
+        sid = self.start()["id"]
+        self.act(sid, "next")
+        with closing(sqlite3.connect(self.db_path)) as db:
+            db.execute("UPDATE sessions SET recipe_snapshot = NULL WHERE id = ?", (sid,))
+            db.commit()
+        action = lambda body: self.post(f"/api/sessions/{sid}/actions", body)
+        s = self.client.get("/api/sessions/active").get_json()["session"]
         self.assertIsNone(s["recipe"])
         for body in ({"action": "next"}, {"action": "resume"}, {"action": "correct", "step_index": 0}):
             resp = action(body)
             self.assertEqual(resp.status_code, 409, body)
             self.assertIn("no longer available", resp.get_json()["error"])
-        self.assertEqual(client.get("/api/sessions/1").get_json()["step_index"], 1)
+        self.assertEqual(self.client.get(f"/api/sessions/{sid}").get_json()["step_index"], 1)
         self.assertEqual(action({"action": "timer_cancel"}).status_code, 200)
         self.assertEqual(action({"action": "end"}).get_json()["status"], "ended")
 

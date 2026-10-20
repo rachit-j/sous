@@ -4,7 +4,7 @@
 
 An opt-in AWS Nova 2 Sonic companion gives natural spoken guidance and answers questions. Speaking interrupts its current response. Use the existing encrypted AWS connection, independently of the vision model. The user chose AWS and full back-and-forth speech with interruption.
 
-- Explicit Start voice before microphone capture; persistent active indicator and Stop control. Stop on Settings, hidden tab, exit, session end/replacement, vault lock, disconnect or timeout.
+- Explicit Start voice before microphone capture; persistent active indicator and Stop control. Stop on non-cooking navigation, hidden tab, exit, session end/replacement, vault lock, logout/revocation, disconnect or timeout.
 - No saved audio/transcripts, browser secrets, credentials in URLs, or upstream error details. Only bounded ephemeral text in the UI.
 - Guidance cannot mutate recipe state or timers. A single read-only context tool supplies fresh server state when the cook asks about progress, camera evidence or remaining time; it cannot execute actions. Existing manual/text controls remain. Legacy browser voice is available when the companion is off. Two qualifying camera observations still advance; finishing remains manual.
 - Server-authoritative recipe snapshot, step, timer and recent observation ground speech. Distinguish earlier camera evidence from current sight. Speak on a new step/actionable alert without narrating every sample.
@@ -12,7 +12,7 @@ An opt-in AWS Nova 2 Sonic companion gives natural spoken guidance and answers q
 
 ## Backend contract
 
-Use Flask-Sock and the official asynchronous Bedrock runtime SDK, pinned to version0.12.0 with its AWS CRT HTTP/2 duplex transport. Static credential resolver uses the unlocked vault; never change environment variables. One active voice stream per app. Authenticate same-origin WebSocket with CSRF before AWS initialization. Validate active session and supported region. Bound frames, queues and connection/auth/stream timeouts; clean up upstream on every exit.
+Use Flask-Sock and the official asynchronous Bedrock runtime SDK, pinned to version0.12.0 with its AWS CRT HTTP/2 duplex transport. Credentials come only from the signed-in cook's unlocked vault. One active voice stream remains available instance-wide; busy messages reveal no other user's identity. Validate login/session ownership before upgrade, then same-origin CSRF before AWS initialization. Poll login validity during streaming and stop on revocation. Bound frames, queues and timeouts; clean up upstream on every exit.
 
 WebSocket `/api/sessions/<id>/voice`:
 

@@ -2,12 +2,18 @@
 
 ## Current
 
-- Phase: V2.1 account/isolation test-first implementation on feature/v2, branched from updated main (df712e2) after voice merged.
-- Active: normal Compose rebuilt and healthy at http://127.0.0.1:5050. Voice is off; vault locked after restart. Persistent settings retained, including the user's5-second snapshot preference.
-- Blockers: none for delivery. Claude quota interrupted a follow-up; Luna completed the scoped fixes. No extra permission needed. Real microphone quality, AWS model access and natural interruption remain for the user's explicit live trial.
-- Next checkpoint: verify Opus's account/isolation implementation against the13 new failing tests and existing backend regressions. Luna's UI/API planning and isolation acceptance review completed read-only. Local brag-output/ is preserved and ignored.
+- Phase: V2.1 backend verified; preparing V2.2 recipe library on feature/v2, branched from updated main (df712e2).
+- Active: normal V1 Compose stack/data on5050 remains untouched during V2 development; all new tests use temporary data. Isolated V2 UI worktree is awaiting integration.
+- Blockers: no external permission/authentication blocker. V2 remains under implementation and requires full integration/browser/container verification before delivery. Real AI/audio quality remains for the user's live trial.
+- Next checkpoint: commit verified account backend, then implement recipe library/AI drafts against V2 contracts. UI remains isolated until backend contracts are available. Local brag-output/ is preserved and ignored.
 
 ## Milestones
+
+- 2026-10-20: V2.1 final unittest discovery passed123 reported tests in37.129s (7optional skips), including same-credentials lock/unlock voice revocation. Actual localhost Flask-Sock integration passed3 tests in2.729s with synthetic upstream, covering live account auth/CSRF and signed-out handshake refusal. Git whitespace check passed. Backend milestone ready to commit; UI/library not yet integrated, normal Docker stack untouched.
+
+- 2026-10-20: Corrected race RED reproduced2 password failures in1.151s. Opus fixed transactional password-hash/auth rechecks and introduced atomic Vault.lease plus Vault.guard held through COMMIT with database-first lock ordering. All18 account tests passed in11.037s, including independent-user isolation, cookie revocation, reset races and concurrent lock/commit ordering. Final voice epoch-revocation follow-up underway before full backend milestone verification. No normal app/data restart.
+
+- 2026-10-20: Initial V2.1 unittest discovery reported117 tests in31.864s,2 failures and7optional skips. Two failures are normal-HTTP requests to a WebSocket route in new account tests; existing voice tests correctly supply Upgrade headers. Independent Luna review found stale password verification can mint a post-reset login and vault epoch validation can race with lock/change before commit. Reviewer writes bounded regression tests/harness correction before Opus fixes. Isolated UI implementation returned; JS syntax and whitespace checks passed, browser runtime unverified.
 
 - 2026-10-20: Root ran13 new account tests RED: all fail on missing public /api/auth (404),0.428s, with no dependency failure. Opus resumed for bounded accounts.py/app/settings/voice integration and authenticated test fixtures. Luna identified race-safe per-user uniqueness, vault/auth invalidation before late writes and global voice-capacity cleanup as required acceptance conditions; added to docs/v2-api.md. TestFlight/native explicitly held off.
 

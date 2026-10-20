@@ -1,4 +1,4 @@
-"""Sous: Flask + SQLite backend for a webcam-assisted cooking session."""
+"""Sous: Flask + SQLite backend for webcam-assisted cooking sessions on a private multi-user instance."""
 
 import base64
 import binascii
@@ -11,14 +11,17 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from typing import NamedTuple
 
 from flask import Flask, current_app, g, jsonify, render_template, request, session
 from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
 
+import accounts
 import voice
+from accounts import AccountError, csrf_token
 from recipes import load_recipes
-from settings import SettingsError, Vault, merge_bedrock, validate_model_id
+from settings import BedrockConnection, SettingsError, Vault, merge_bedrock, validate_model_id
 
 MODES = ("monitoring", "assistive")
 ACTIONS = (
@@ -26,18 +29,23 @@ ACTIONS = (
     "timer_set", "timer_cancel", "timer_ack", "finish", "end",
 )
 RECIPE_ACTIONS = ("next", "back", "correct", "finish", "resume")  # need the session's recipe
-# (id, display name, env var required for "configured" or None, default model env var)
+# (id, display name). Ollama is the shared local option (OLLAMA_MODEL default). Cloud providers need
+# the account's own credentials: Bedrock uses the account's vault; OpenAI and Anthropic have no
+# per-account credentials yet and are never configured from shared server environment keys.
 PROVIDERS = (
-    ("ollama", "Ollama (local)", None, "OLLAMA_MODEL"),
-    ("openai", "OpenAI", "OPENAI_API_KEY", "OPENAI_MODEL"),
-    ("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"),
-    ("bedrock", "AWS Bedrock", "AWS_REGION", "BEDROCK_MODEL_ID"),
+    ("ollama", "Ollama (local)"),
+    ("openai", "OpenAI"),
+    ("anthropic", "Anthropic"),
+    ("bedrock", "AWS Bedrock"),
 )
+SHARED_PROVIDERS = ("ollama",)
+OWNER_FIELDS = ("user_id", "owner_id", "owner", "user", "username")  # identity comes from login only
 SAMPLE_INTERVAL = 10  # default; users may save 1..MAX_SAMPLE_INTERVAL seconds
 MIN_SAMPLE_INTERVAL, MAX_SAMPLE_INTERVAL = 1, 15
 MAX_SETTINGS_BYTES = 16 * 1024
 DISCOVERY_PATH = "/api/settings/bedrock/models"
 LOCKED_BEDROCK = "Bedrock settings are locked. Unlock them in Settings; manual controls still work."
+NO_BEDROCK = "Save an AWS connection in Settings first; manual controls still work."
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_JPEG_BYTES = 1024 * 1024
 JPEG_PREFIX = "data:image/jpeg;base64,"
@@ -66,9 +74,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     timer_alerted INTEGER NOT NULL DEFAULT 0,
     completion_streak INTEGER NOT NULL DEFAULT 0,
     latest_observation TEXT,
-    recipe_snapshot TEXT
+    recipe_snapshot TEXT,
+    user_id INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_session ON sessions(status) WHERE status = 'active';
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES sessions(id),
@@ -77,7 +85,7 @@ CREATE TABLE IF NOT EXISTS events (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_by_session ON events(session_id, id);
-CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE IF NOT EXISTS settings (  -- V1 instance-wide preferences, preserved but unused
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
@@ -118,11 +126,14 @@ def create_app(test_config=None):
         SECRET_KEY_FILE=os.path.join(app.instance_path, "secret_key"),
         MAX_CONTENT_LENGTH=MAX_REQUEST_BYTES,
         SESSION_COOKIE_SAMESITE="Lax",
+        PERMANENT_SESSION_LIFETIME=accounts.SESSION_TTL,  # the server-side login expires at the same age
         # Local-only app: reject other Host headers (DNS rebinding). Ports are ignored.
         TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
         CLOCK=time.time,
         RECIPE_DIR=None,  # None: bundled recipes/ directory
-        SETTINGS_VAULT=None,  # None: settings.vault next to DATABASE (the data volume)
+        # V1 single-user vault path (None: settings.vault next to DATABASE). V2 never reads or writes
+        # it; account vaults live under its directory in users/<id>/settings.vault.
+        SETTINGS_VAULT=None,
         SOCK_SERVER_OPTIONS={"max_message_size": voice.MAX_SOCKET_MESSAGE, "ping_interval": 25},
     )
     if test_config:
@@ -131,24 +142,49 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = load_secret_key(app.config["SECRET_KEY_FILE"])
     app.extensions["sous_observations"] = {"lock": threading.Lock(), "busy": set()}
     app.extensions["sous_recipes"] = load_recipes(app.config["RECIPE_DIR"])
-    vault_path = app.config["SETTINGS_VAULT"] or os.path.join(
+    legacy_vault = app.config["SETTINGS_VAULT"] or os.path.join(
         os.path.dirname(os.path.abspath(app.config["DATABASE"])), "settings.vault")
-    app.extensions["sous_vault"] = Vault(vault_path, app.config["CLOCK"])  # always starts locked
+    app.extensions["sous_vaults"] = {"lock": threading.Lock(), "vaults": {},  # all start locked
+                                     "root": os.path.join(os.path.dirname(os.path.abspath(legacy_vault)), "users")}
     app.extensions["sous_discovery"] = threading.Lock()
-    app.extensions["sous_voice"] = voice.new_state()  # tests may replace "open_stream" with a fake
+    # One voice stream instance-wide for this private release; tests may replace "open_stream".
+    app.extensions["sous_voice"] = voice.new_state()
 
     init_db(app.config["DATABASE"], app.config["CLOCK"](), app.extensions["sous_recipes"])
     app.teardown_appcontext(close_db)
     app.register_error_handler(ApiError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(SettingsError, lambda e: (jsonify(error=e.message), e.status))
+    app.register_error_handler(AccountError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
     app.register_error_handler(Exception, unexpected_error)
     app.before_request(check_origin_and_csrf)
+    app.before_request(require_login)
     app.after_request(security_headers)
     register_routes(app)
+    accounts.register_routes(app, get_db, transaction, json_body,
+                             lambda user_id: lock_user_vault(app, user_id))
     register_settings_routes(app)
     register_voice_routes(app, Sock(app))
     return app
+
+
+def user_vault(app, user_id):
+    """The account's own vault at <data dir>/users/<id>/settings.vault (server integer id only)."""
+    registry = app.extensions["sous_vaults"]
+    user_id = int(user_id)
+    with registry["lock"]:
+        vault = registry["vaults"].get(user_id)
+        if vault is None:
+            path = os.path.join(registry["root"], str(user_id), "settings.vault")
+            vault = registry["vaults"][user_id] = Vault(path, app.config["CLOCK"])
+        return vault
+
+
+def lock_user_vault(app, user_id):
+    with app.extensions["sous_vaults"]["lock"]:
+        vault = app.extensions["sous_vaults"]["vaults"].get(int(user_id))
+    if vault is not None:
+        vault.lock()
 
 
 def load_secret_key(path):
@@ -181,13 +217,23 @@ def init_db(path, now, recipes):
 
     Upgrades are additive only: older databases gain recipe_snapshot, backfilled from the
     current definition when one exists. Rows whose recipe is gone keep a NULL snapshot.
+    V1 rows gain a NULL user_id and stay unowned (never visible to accounts); the V1 settings
+    table is kept as is. One active session per account replaces the instance-wide constraint.
     """
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     db = connect(path)
     try:
         db.executescript(SCHEMA)
-        if "recipe_snapshot" not in {r["name"] for r in db.execute("PRAGMA table_info(sessions)")}:
+        db.executescript(accounts.SCHEMA)
+        columns = {r["name"] for r in db.execute("PRAGMA table_info(sessions)")}
+        if "recipe_snapshot" not in columns:
             db.execute("ALTER TABLE sessions ADD COLUMN recipe_snapshot TEXT")
+        if "user_id" not in columns:
+            db.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+        db.execute("DROP INDEX IF EXISTS one_active_session")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_per_user ON sessions(user_id)"
+                   " WHERE status = 'active' AND user_id IS NOT NULL")
+        db.execute("CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id, id)")
         with transaction(db):
             for row in db.execute(
                 "SELECT id, recipe_id, step_index FROM sessions WHERE recipe_snapshot IS NULL"
@@ -220,22 +266,39 @@ def close_db(_exc=None):
 
 
 @contextmanager
-def transaction(db):
+def transaction(db, guard=None):
+    """BEGIN IMMEDIATE ... COMMIT.
+
+    guard (e.g. Vault.guard()) is entered after the write lock and held through COMMIT, so a
+    lease checked inside cannot be invalidated before the writes are durable. Lock order is
+    always database first, then guard.
+    """
     db.execute("BEGIN IMMEDIATE")
     try:
-        yield db
+        if guard is None:
+            yield db
+            db.execute("COMMIT")
+        else:
+            with guard:
+                yield db
+                db.execute("COMMIT")
     except BaseException:
-        db.execute("ROLLBACK")
+        if db.in_transaction:
+            db.execute("ROLLBACK")
         raise
-    db.execute("COMMIT")
 
 
 def now():
     return current_app.config["CLOCK"]()
 
 
-def load_session(db, session_id):
-    row = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+def current_user_id():
+    return g.user["id"]
+
+
+def load_session(db, session_id, user_id):
+    """The caller's own session. Other accounts' and unowned V1 rows look exactly like missing ones."""
+    row = db.execute("SELECT * FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
     if row is None:
         raise ApiError(404, "Session not found.")
     return row
@@ -256,6 +319,7 @@ def log_event(db, session_id, kind, message, at):
 
 def session_json(db, row):
     data = dict(row)
+    data.pop("user_id", None)
     data["monitoring"] = bool(data["monitoring"])
     data["timer_alerted"] = bool(data["timer_alerted"])
     data["latest_observation"] = json.loads(data["latest_observation"]) if data["latest_observation"] else None
@@ -279,9 +343,9 @@ def current_recipes():
     return current_app.extensions["sous_recipes"]
 
 
-def respond_session(session_id, status=200):
+def respond_session(session_id, user_id, status=200):
     db = get_db()
-    return jsonify(session_json(db, load_session(db, session_id))), status
+    return jsonify(session_json(db, load_session(db, session_id, user_id))), status
 
 
 # --- Request validation ---------------------------------------------------
@@ -294,9 +358,10 @@ def http_error(exc):
 
 
 def unexpected_error(exc):
-    if request.path.startswith("/api/settings"):
-        # No traceback: exception text or frames could carry submitted credentials.
-        current_app.logger.error("Unhandled error in settings request: %s", type(exc).__name__)
+    if request.path.startswith(("/api/settings", "/api/auth", "/api/users")):
+        # No traceback: exception text or frames could carry submitted credentials or passwords.
+        current_app.logger.error("Unhandled error in %s request: %s", request.path.split("/")[2],
+                                 type(exc).__name__)
     else:
         current_app.logger.exception("Unhandled error")
     return jsonify(error="Internal server error."), 500
@@ -306,16 +371,26 @@ def security_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    if request.path.startswith(("/api/settings", "/api/config")):
+    if request.path.startswith("/api/"):  # account data, including errors, is never cached
         response.headers["Cache-Control"] = "no-store"
     return response
 
 
-def csrf_token():
-    if "csrf_token" not in session:
-        session["csrf_token"] = secrets.token_urlsafe(32)
-        session.permanent = True
-    return session["csrf_token"]
+def require_login():
+    """Every endpoint except the app shell and bounded auth actions needs a live server-side login.
+
+    The voice socket is also checked for session ownership here, before any WebSocket upgrade.
+    """
+    if request.endpoint is None or request.endpoint == "static":
+        return None
+    user = accounts.load_auth(get_db())
+    if request.endpoint in accounts.PUBLIC_ENDPOINTS:
+        return None
+    if user is None:
+        raise AccountError(401, accounts.SIGN_IN)
+    if request.endpoint == "voice_socket":
+        load_session(get_db(), request.view_args["session_id"], user["id"])
+    return None
 
 
 def check_origin_and_csrf():
@@ -364,23 +439,23 @@ def decode_jpeg(image):
     return data
 
 
-def provider_catalog(db):
-    """Providers with configuration state. A saved (managed) Bedrock connection supersedes the
-    environment; while it is locked Bedrock is unconfigured rather than falling back."""
-    defaults = get_defaults(db)
+def provider_catalog(db, user_id):
+    """Providers with configuration state for one account. Bedrock uses only the account's own
+    saved connection: while locked or unsaved it is unconfigured, never the server environment."""
+    defaults = get_defaults(db, user_id)
     vault = current_vault()
     catalog = []
-    for pid, name, required, model_var in PROVIDERS:
-        entry = {"id": pid, "name": name, "configured": required is None or bool(os.environ.get(required)),
-                 "default_model": os.environ.get(model_var, "")}
+    for pid, name in PROVIDERS:
+        shared = pid in SHARED_PROVIDERS
+        entry = {"id": pid, "name": name, "configured": shared,
+                 "default_model": os.environ.get("OLLAMA_MODEL", "") if shared else ""}
         if pid == "bedrock":
             managed = vault.managed_bedrock
             locked, conn = vault.state()
-            entry["source"] = "managed" if managed else "environment"
+            entry["source"] = "managed" if managed else "none"
             entry["locked"] = managed and locked
-            if managed:
-                entry["configured"] = conn is not None
-                entry["default_model"] = conn["model"] if conn else ""
+            entry["configured"] = conn is not None
+            entry["default_model"] = conn["model"] if conn else ""
         if defaults["provider"] == pid:
             entry["default_model"] = defaults["model"]
         catalog.append(entry)
@@ -390,11 +465,49 @@ def provider_catalog(db):
 # --- Settings and preferences ---------------------------------------------
 
 def current_vault():
-    return current_app.extensions["sous_vault"]
+    return user_vault(current_app, current_user_id())
 
 
-def get_pref(db, key):
-    row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+CREDENTIALS_CHANGED = "Settings changed while the model was working; that result was discarded. Try again."
+
+
+class CredentialLease(NamedTuple):
+    """The caller's login and own vault state, captured in the request before slow external work.
+
+    An upstream call that was already sent cannot be recalled; its result is only written if the
+    lease is still valid under leased_transaction.
+    """
+    user_id: int
+    token_hash: str
+    vault: Vault
+    epoch: int
+    connection: BedrockConnection | None  # None: the work does not use the vault
+
+
+def lease_credentials():
+    vault = current_vault()
+    epoch, connection = vault.lease()
+    return CredentialLease(current_user_id(), g.auth_token_hash, vault, epoch, connection)
+
+
+@contextmanager
+def leased_transaction(db, lease):
+    """Write transaction that yields None if the lease is still valid, else the error to raise
+    after the block (the caller must then write nothing). With a connection, the vault guard is
+    held from the check through COMMIT, so a lock/unlock/save either completes first (rejecting
+    this result) or waits until the result is committed."""
+    guard = lease.vault.guard() if lease.connection is not None else None
+    with transaction(db, guard):
+        if not accounts.auth_valid(db, lease.user_id, lease.token_hash, now()):
+            yield AccountError(401, accounts.SIGN_IN)
+        elif lease.connection is not None and lease.vault.epoch != lease.epoch:
+            yield ApiError(409, CREDENTIALS_CHANGED)
+        else:
+            yield None
+
+
+def get_pref(db, user_id, key):
+    row = db.execute("SELECT value FROM user_settings WHERE user_id = ? AND key = ?", (user_id, key)).fetchone()
     if row is None:
         return None
     try:
@@ -403,29 +516,29 @@ def get_pref(db, key):
         return None
 
 
-def set_pref(db, key, value):
-    db.execute("INSERT INTO settings (key, value) VALUES (?, ?)"
-               " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, json.dumps(value)))
+def set_pref(db, user_id, key, value):
+    db.execute("INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?)"
+               " ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value", (user_id, key, json.dumps(value)))
 
 
 def valid_interval(value):
     return is_int(value) and MIN_SAMPLE_INTERVAL <= value <= MAX_SAMPLE_INTERVAL
 
 
-def get_sample_interval(db):
-    value = get_pref(db, "sample_interval")
+def get_sample_interval(db, user_id):
+    value = get_pref(db, user_id, "sample_interval")
     return value if valid_interval(value) else SAMPLE_INTERVAL
 
 
-def get_voice_id(db):
-    value = get_pref(db, "voice_id")
+def get_voice_id(db, user_id):
+    value = get_pref(db, user_id, "voice_id")
     return value if value in voice.VOICES else voice.DEFAULT_VOICE
 
 
-def voice_json(db):
+def voice_json(db, user_id):
     """Safe voice metadata from in-memory state; never calls AWS."""
     available, reason = voice.voice_status(current_vault())
-    data = {"model": voice.MODEL_ID, "voice_id": get_voice_id(db), "available": available}
+    data = {"model": voice.MODEL_ID, "voice_id": get_voice_id(db, user_id), "available": available}
     if reason:
         data["reason"] = reason
     if reason == voice.UNSUPPORTED_REGION:
@@ -433,8 +546,8 @@ def voice_json(db):
     return data
 
 
-def get_defaults(db):
-    value = get_pref(db, "defaults")
+def get_defaults(db, user_id):
+    value = get_pref(db, user_id, "defaults")
     known = {p[0] for p in PROVIDERS}
     if (isinstance(value, dict) and value.get("provider") in known
             and isinstance(value.get("model"), str) and value["model"]):
@@ -448,8 +561,8 @@ def settings_body():
     return json_body()
 
 
-def settings_json(db):
-    """Safe settings view: never includes credentials or the passphrase."""
+def settings_json(db, user_id):
+    """Safe settings view for one account: never includes credentials or the passphrase."""
     vault = current_vault()
     managed = vault.managed_bedrock
     locked, conn = vault.state()
@@ -459,18 +572,18 @@ def settings_json(db):
         conn = conn or {}
         bedrock = {"region": conn.get("region", ""), "model": conn.get("model", ""),
                    "has_credentials": bool(conn), "has_session_token": bool(conn.get("session_token"))}
-    bedrock["source"] = "managed" if managed else ("environment" if os.environ.get("AWS_REGION") else "none")
+    bedrock["source"] = "managed" if managed else "none"  # never the shared server environment
     return {
         "vault": {"initialized": vault.initialized, "locked": locked},
         "bedrock": bedrock,
-        "defaults": get_defaults(db),
-        "sample_interval": get_sample_interval(db),
-        "voice": voice_json(db),
+        "defaults": get_defaults(db, user_id),
+        "sample_interval": get_sample_interval(db, user_id),
+        "voice": voice_json(db, user_id),
     }
 
 
 def respond_settings(status=200):
-    return jsonify(settings_json(get_db())), status
+    return jsonify(settings_json(get_db(), current_user_id())), status
 
 
 # --- State transitions ----------------------------------------------------
@@ -655,24 +768,28 @@ def register_routes(app):
     @app.get("/api/config")
     def config():
         db = get_db()
-        return jsonify(recipes=list(current_recipes().values()), providers=provider_catalog(db),
-                       defaults=get_defaults(db), sample_interval=get_sample_interval(db))
+        user_id = current_user_id()
+        return jsonify(recipes=list(current_recipes().values()), providers=provider_catalog(db, user_id),
+                       defaults=get_defaults(db, user_id), sample_interval=get_sample_interval(db, user_id))
 
     @app.post("/api/sessions")
     def create_session():
         body = json_body()
+        user_id = current_user_id()
+        if any(field in body for field in OWNER_FIELDS):
+            raise ApiError(400, "Sessions always belong to the signed-in account.")
         recipe_id, provider = body.get("recipe_id"), body.get("provider")
         model, mode = body.get("model"), body.get("mode")
         if not isinstance(recipe_id, str) or recipe_id not in current_recipes():
             raise ApiError(400, "Unknown recipe.")
         recipe = current_recipes()[recipe_id]
-        catalog = {p["id"]: p for p in provider_catalog(get_db())}
+        catalog = {p["id"]: p for p in provider_catalog(get_db(), user_id)}
         if not isinstance(provider, str) or provider not in catalog:
             raise ApiError(400, "Unknown provider.")
         if catalog[provider].get("locked"):
             raise ApiError(409, LOCKED_BEDROCK)
         if not catalog[provider]["configured"]:
-            raise ApiError(400, "That provider is not configured on the server.")
+            raise ApiError(400, "That provider is not configured for your account.")
         if not isinstance(model, str) or not model.strip() or len(model) > 200:
             raise ApiError(400, "A model ID is required.")
         if mode not in MODES:
@@ -680,64 +797,73 @@ def register_routes(app):
         at = now()
         db = get_db()
         try:
-            with transaction(db):
-                if db.execute("SELECT 1 FROM sessions WHERE status = 'active'").fetchone():
+            with transaction(db):  # the per-account unique index also guards concurrent creation
+                if db.execute("SELECT 1 FROM sessions WHERE status = 'active' AND user_id = ?",
+                              (user_id,)).fetchone():
                     raise ApiError(409, "Another session is already active.")
                 session_id = db.execute(
                     "INSERT INTO sessions (recipe_id, provider, model, mode, status, created_at, updated_at,"
-                    " step_started_at, recipe_snapshot) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
-                    (recipe_id, provider, model.strip(), mode, at, at, at, json.dumps(recipe)),
+                    " step_started_at, recipe_snapshot, user_id) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+                    (recipe_id, provider, model.strip(), mode, at, at, at, json.dumps(recipe), user_id),
                 ).lastrowid
                 log_event(db, session_id, "session", f"Started {recipe['name']} in {mode} mode.", at)
         except sqlite3.IntegrityError:
             raise ApiError(409, "Another session is already active.") from None
-        return respond_session(session_id, 201)
+        return respond_session(session_id, user_id, 201)
 
     @app.get("/api/sessions/active")
     def active_session():
         db = get_db()
-        row = db.execute("SELECT * FROM sessions WHERE status = 'active'").fetchone()
+        row = db.execute("SELECT * FROM sessions WHERE status = 'active' AND user_id = ?",
+                         (current_user_id(),)).fetchone()
         return jsonify(session=session_json(db, row) if row else None)
 
     @app.get("/api/sessions/<int:session_id>")
     def get_session(session_id):
-        return respond_session(session_id)
+        return respond_session(session_id, current_user_id())
 
     @app.post("/api/sessions/<int:session_id>/actions")
     def session_action(session_id):
         body = json_body()
+        user_id = current_user_id()
         at = now()
         db = get_db()
         with transaction(db):
-            changes, event = apply_action(load_session(db, session_id), body, at)
+            changes, event = apply_action(load_session(db, session_id, user_id), body, at)
             if changes:
                 update_session(db, session_id, {**changes, "updated_at": at})
             if event:
                 log_event(db, session_id, *event, at)
-        return respond_session(session_id)
+        return respond_session(session_id, user_id)
 
     @app.post("/api/sessions/<int:session_id>/observations")
     def post_observation(session_id):
+        # Identity and vault state are leased now and rechecked under the commit guard after
+        # inference: logout, revocation or a vault change meanwhile discards the result unwritten.
+        lease = lease_credentials()
+        user_id = lease.user_id
         body = json_body()
         revision = body.get("revision")
         if not is_int(revision):
             raise ApiError(400, "revision must be an integer.")
         jpeg = decode_jpeg(body.get("image"))
         db = get_db()
-        row = load_session(db, session_id)
+        row = load_session(db, session_id, user_id)
         check_observable(row, revision)
         try:
             import providers  # P1 hook: providers.analyze(provider, model, jpeg_bytes, context) -> dict
         except ImportError:
             raise ApiError(503, "Visual monitoring is not available yet. Manual controls still work.") from None
-        # A saved Bedrock connection is passed explicitly; when locked there is no fallback to
-        # environment credentials. Other providers keep the 4-argument call.
-        connection = None
-        if row["provider"] == "bedrock" and current_vault().managed_bedrock:
-            connection = current_vault().connection()
-            if connection is None:
-                raise ApiError(409, LOCKED_BEDROCK)
-        extra = {"bedrock": connection} if connection else {}
+        if row["provider"] not in SHARED_PROVIDERS and row["provider"] != "bedrock":
+            raise ApiError(409, "That provider is not available for your account. Manual controls still work.")
+        # Bedrock always gets the account's own connection explicitly; there is no environment
+        # fallback. Other providers keep the 4-argument call and do not depend on the vault.
+        if row["provider"] == "bedrock":
+            if lease.connection is None:
+                raise ApiError(409, LOCKED_BEDROCK if lease.vault.state()[0] else NO_BEDROCK)
+        else:
+            lease = lease._replace(connection=None)
+        extra = {"bedrock": lease.connection} if lease.connection else {}
 
         busy = current_app.extensions["sous_observations"]
         with busy["lock"]:
@@ -759,33 +885,38 @@ def register_routes(app):
             latency_ms = int((time.monotonic() - started) * 1000)
             at = now()
 
-            with transaction(db):
-                # Fresh state decides staleness and receives a valid result; the audit row keeps
-                # the metadata (step, provider, model) the request actually started with.
-                fresh = load_session(db, session_id)
-                stale = (fresh["status"] != "active" or not fresh["monitoring"]
-                         or fresh["revision"] != revision)
-                if stale:
-                    record_observation(db, row, revision, at, latency_ms, obs,
-                                       f"stale: {error}" if error else "stale")
-                else:
-                    record_observation(db, row, revision, at, latency_ms, obs, error)
-                    if not error:
-                        changes, events = apply_observation(fresh, obs, at)
-                        update_session(db, session_id, changes)
-                        for kind, message in events:
-                            log_event(db, session_id, kind, message, at)
+            stale = False
+            with leased_transaction(db, lease) as problem:
+                # A revoked login or invalidated credentials write nothing, not even the audit row.
+                if problem is None:
+                    # Fresh state decides staleness and receives a valid result; the audit row keeps
+                    # the metadata (step, provider, model) the request actually started with.
+                    fresh = load_session(db, session_id, user_id)
+                    stale = (fresh["status"] != "active" or not fresh["monitoring"]
+                             or fresh["revision"] != revision)
+                    if stale:
+                        record_observation(db, row, revision, at, latency_ms, obs,
+                                           f"stale: {error}" if error else "stale")
+                    else:
+                        record_observation(db, row, revision, at, latency_ms, obs, error)
+                        if not error:
+                            changes, events = apply_observation(fresh, obs, at)
+                            update_session(db, session_id, changes)
+                            for kind, message in events:
+                                log_event(db, session_id, kind, message, at)
         finally:
             with busy["lock"]:
                 busy["busy"].discard(session_id)
 
+        if problem is not None:
+            raise problem
         if stale:
             raise ApiError(409, "Observation is stale; refresh session state.")
         if error:
             if error.startswith("invalid_output"):
                 raise ApiError(502, "The model returned an unusable observation. Try again.")
             raise ApiError(502, "Analysis failed. Manual controls still work; try again.")
-        return respond_session(session_id)
+        return respond_session(session_id, user_id)
 
 
 def register_settings_routes(app):
@@ -834,7 +965,7 @@ def register_settings_routes(app):
         model = validate_model_id(body.get("model"), required=True)
         db = get_db()
         with transaction(db):
-            set_pref(db, "defaults", {"provider": provider, "model": model})
+            set_pref(db, current_user_id(), "defaults", {"provider": provider, "model": model})
         return respond_settings()
 
     @app.put("/api/settings/preferences")
@@ -851,7 +982,7 @@ def register_settings_routes(app):
         db = get_db()
         with transaction(db):
             for key in sorted(body):
-                set_pref(db, key, body[key])
+                set_pref(db, current_user_id(), key, body[key])
         return respond_settings()
 
     @app.get(DISCOVERY_PATH)
@@ -877,9 +1008,27 @@ def register_settings_routes(app):
 
 
 def register_voice_routes(app, sock):
-    """Conversational voice WebSocket (docs/voice.md). Origin is checked before the upgrade."""
+    """Conversational voice WebSocket (docs/voice.md). Origin, login and session ownership are
+    checked in before_request handlers, before the upgrade."""
 
     @sock.route("/api/sessions/<int:session_id>/voice")
     def voice_socket(ws, session_id):
-        db = get_db()
-        voice.serve(ws, session_id, session.get("csrf_token"), db, get_voice_id(db))
+        serve_voice(ws, session_id)
+
+
+def serve_voice(ws, session_id):
+    """Run one voice socket for the request's signed-in account.
+
+    Resolves the login from the request cookie itself, so callers outside the route still get
+    real server-side authentication. voice.serve rechecks ownership and polls the login while
+    streaming, so logout or revocation stops the stream.
+    """
+    db = get_db()
+    user = accounts.load_auth(db)
+    if user is None:
+        ws.send(json.dumps({"type": "error", "message": voice.AUTH_FAILED}))
+        return
+    user_id, token_hash, clock = user["id"], g.auth_token_hash, current_app.config["CLOCK"]
+    voice.serve(ws, session_id, session.get("csrf_token"), db, get_voice_id(db, user_id),
+                user_vault(current_app, user_id), user_id,
+                lambda: accounts.auth_valid(db, user_id, token_hash, clock()))

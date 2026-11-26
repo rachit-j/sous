@@ -2,20 +2,9 @@
 
 ## Decisions
 
-Flask serves Jinja HTML and a JSON API. Plain JavaScript owns webcam capture, optional speech and rendering. V2 targets a few trusted accounts on one private instance; SQLite stores revocable logins and account-owned cooking state/preferences. Bundled recipe JSON remains shared, with a database library for personal and additional global recipes. These choices prioritize iteration and a reusable API for a future client.
+Flask serves Jinja HTML and a small JSON API. Plain browser JavaScript owns webcam capture, optional browser speech, and UI rendering. SQLite is sufficient for one local cook and makes sessions/events inspectable without another service. Recipe JSON under `recipes/` supplies all instructions, ingredients and visual cues; scrambled eggs is only the first example. These choices prioritize fast iteration.
 
-Model adapters share a normalized observation contract; the app's state machine, rather than a model, controls step advancement. See [V2 contracts](v2-api.md), the [core cooking API](api.md) and [provider setup](providers.md).
-
-| Module | Boundary |
-|---|---|
-| accounts.py | Password hashes, revocable login sessions, provisioning and authorization |
-| app.py | HTTP orchestration, cooking state/revisions and credential-guarded result commits |
-| settings.py | Per-account passphrase-encrypted AWS vault and in-memory credential leases |
-| library.py / recipes.py | Personal/global catalog, validated recipe data and scaling drafts |
-| recipe_ai.py / providers.py | Bounded AI drafts and provider request/observation normalization |
-| cooking.py | Owned timers, checklists, history notes, advisory alerts and freshness |
-| voice.py | Authorized duplex stream and read-only fresh cooking context |
-| static/app.js / static/v2.js | Core cooking/media lifecycle and account/library/tool views |
+Model adapters share a normalized observation contract; the app's state machine, rather than a model, controls step advancement. See [API contract](api.md) for the precise boundary and [provider setup](providers.md) for configuration.
 
 ## Data flow
 
@@ -24,11 +13,8 @@ flowchart LR
   Cook --> UI[Browser controls and speech]
   Camera[Webcam snapshot] --> UI
   UI --> API[Flask API]
-  API --> Auth[Account authorization]
-  Auth --> DB[(SQLite owned records)]
-  Auth --> Vault[User's unlocked AWS vault]
+  API --> DB[(SQLite sessions and events)]
   API --> Model[Selected provider adapter]
-  Vault --> Model
   Model --> Check[Validate observation and state revision]
   Check --> DB
   DB --> UI
@@ -44,11 +30,11 @@ Each step has instructions and visual completion cues. Two consecutive model obs
 
 Each session saves a recipe snapshot. Config edits apply to new sessions; ongoing sessions continue with their original instructions, cues and step count. Existing databases gain the snapshot column through an additive migration. See [structured recipes](recipes.md).
 
-Only one model request per cooking session runs at once. Network calls happen outside SQLite transactions; login, ownership, revision and credential validity are checked again before applying the result. A database constraint enforces one active cook per user. One server process retains in-memory vaults and bounded stream limits; distributed workers require a different synchronization/key lifecycle design.
+Only one model request per session runs at once. Network calls happen outside SQLite transactions; state is checked again before applying the result. This MVP uses one server process and one active browser tab. A distributed worker/multi-user system would require a different concurrency mechanism.
 
 The Docker image uses one Gunicorn worker with eight threads, so manual controls can be served during model calls and a voice WebSocket while per-process locks remain valid. Voice is capped at one active stream and two authenticating sockets. The app runs as a non-root user and keeps SQLite and its signing secret in a named volume. See [Docker setup](docker.md).
 
-Mode changes and pauses reset completion evidence. Reloading or restarting pauses monitoring until the user resumes. Final completion always requires the cook's confirmation. Timers have absolute deadlines and are independent of recipe advancement; ending a session cancels its live timers. Obstructed views and safety concerns cannot qualify for automatic progression. See [cooking tools](cooking-tools.md).
+Mode changes and pauses reset completion evidence. Reloading or restarting pauses monitoring until the user resumes. Final completion always requires the cook's confirmation. Timers have absolute deadlines and are independent of recipe advancement; ending a session cancels its timer.
 
 ## Privacy and failure behavior
 

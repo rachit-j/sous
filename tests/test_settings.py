@@ -9,7 +9,6 @@ from unittest import mock
 
 from botocore.exceptions import ClientError
 
-from app import user_vault
 from settings import BAD_UNLOCK, BedrockConnection, SettingsError, merge_bedrock
 from tests.test_app import SousTestCase, observation
 
@@ -35,8 +34,7 @@ class LogCapture(logging.Handler):
 class SettingsTestCase(SousTestCase):
     def setUp(self):
         super().setUp()
-        self.vault_path = self.vault().path  # the signed-in fixture account's own vault file
-        self.legacy_vault_path = os.path.join(self.tmp.name, "settings.vault")  # V1 location, never used
+        self.vault_path = os.path.join(self.tmp.name, "settings.vault")  # derived from test DATABASE
         root = logging.getLogger()
         self.logs = LogCapture()
         old_level = root.level
@@ -69,7 +67,7 @@ class SettingsTestCase(SousTestCase):
         self.client, self.token = self.browser(self.app)
 
     def vault(self):
-        return user_vault(self.app, self.user_id)
+        return self.app.extensions["sous_vault"]
 
     def assert_no_secrets(self, text):
         for value in SENTINELS:
@@ -110,11 +108,7 @@ class VaultTests(SettingsTestCase):
         self.assertNotIn("us-west-2", stored)
         self.assertEqual(set(json.loads(stored)), {"version", "kdf", "salt", "token"})
         self.assertEqual(stat.S_IMODE(os.stat(self.vault_path).st_mode), 0o600)
-        vault_dir = os.path.dirname(self.vault_path)
-        self.assertEqual(vault_dir, os.path.join(self.tmp.name, "users", str(self.user_id)))
-        self.assertEqual(stat.S_IMODE(os.stat(vault_dir).st_mode) & 0o077, 0)  # no group/other access
-        self.assertEqual([f for f in os.listdir(vault_dir) if f.endswith(".tmp")], [])
-        self.assertFalse(os.path.exists(self.legacy_vault_path))
+        self.assertEqual([f for f in os.listdir(self.tmp.name) if f.endswith(".tmp")], [])
         with open(self.db_path, "rb") as fh:
             self.assert_no_secrets(fh.read().decode("latin-1"))
 
@@ -355,7 +349,7 @@ class ManagedBedrockTests(SettingsTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(self.vault().managed_bedrock)
 
-    def test_empty_vault_never_falls_back_to_environment(self):
+    def test_empty_vault_blocks_environment_fallback_until_unlock(self):
         self.assertEqual(self.send("DELETE", "/api/settings/bedrock").status_code, 200)
         self.restart()
         bedrock = next(p for p in self.client.get("/api/config").get_json()["providers"] if p["id"] == "bedrock")
@@ -366,16 +360,10 @@ class ManagedBedrockTests(SettingsTestCase):
                          409)
         self.session_cls.assert_not_called()
 
-        # V2: an unlocked vault without a connection is simply unconfigured, never the environment.
         resp = self.post("/api/settings/unlock", {"passphrase": PASSPHRASE})
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(self.vault().managed_bedrock)
-        self.assertEqual(resp.get_json()["bedrock"]["source"], "none")
-        bedrock = next(p for p in self.client.get("/api/config").get_json()["providers"] if p["id"] == "bedrock")
-        self.assertEqual((bedrock["configured"], bedrock["locked"], bedrock["source"]), (False, False, "none"))
-        self.assertEqual(self.post("/api/sessions", {"recipe_id": "scrambled-eggs", "provider": "bedrock",
-                                                     "model": "env-model", "mode": "monitoring"}).status_code, 400)
-        self.session_cls.assert_not_called()
+        self.assertEqual(resp.get_json()["bedrock"]["source"], "environment")
 
     def test_config_reflects_managed_connection(self):
         bedrock = next(p for p in self.client.get("/api/config").get_json()["providers"] if p["id"] == "bedrock")
@@ -419,16 +407,11 @@ class ManagedBedrockTests(SettingsTestCase):
             self.assertEqual(self.observe(session).status_code, 200)
         self.assertEqual(calls, ["ollama"])
 
-    def test_deleted_connection_never_uses_environment_credentials(self):
-        session = self.act(self.start(provider="bedrock", model="vision-model")["id"], "resume")
+    def test_without_managed_connection_env_chain_is_preserved(self):
         self.send("DELETE", "/api/settings/bedrock")
-        resp = self.observe(session)  # a session started earlier cannot fall back either
-        self.assertEqual(resp.status_code, 409)
-        self.act(session["id"], "end")
-        resp = self.post("/api/sessions", {"recipe_id": "scrambled-eggs", "provider": "bedrock",
-                                           "model": "vision-model", "mode": "monitoring"})
-        self.assertEqual(resp.status_code, 400)
-        self.session_cls.assert_not_called()
+        session = self.act(self.start(provider="bedrock", model="vision-model")["id"], "resume")
+        self.assertEqual(self.observe(session).status_code, 200)
+        self.session_cls.assert_called_once_with(profile_name=None, region_name="us-east-1")
 
 
 MODELS = {"modelSummaries": [

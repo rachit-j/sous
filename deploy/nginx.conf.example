@@ -1,0 +1,37 @@
+# Install in the host Nginx http context (for example sites-available/sous).
+# Replace sous.example.com and certificate paths before enabling this site.
+map $http_upgrade $sous_connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
+server {
+    listen 80;
+    server_name sous.example.com;
+    return 301 https://sous.example.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name sous.example.com;
+    ssl_certificate /etc/letsencrypt/live/sous.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/sous.example.com/privkey.pem;
+
+    # Configure access control for the whole site here before exposing this
+    # single-cook app. Vault unlock is not site authentication.
+    client_max_body_size 2m;
+
+    location / {
+        proxy_pass http://127.0.0.1:5050;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $sous_connection_upgrade;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+    }
+}

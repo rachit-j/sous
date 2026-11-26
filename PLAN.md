@@ -70,36 +70,9 @@ User also requested snapshot frequency settings:10-second default,15-second maxi
 
 Implement [AWS live voice](docs/voice.md) on feature/conversational-voice, created after pulling main. User chose existing AWS credentials and back-and-forth speech with interruption. Opus owns secure duplex backend; Luna owns opt-in audio UI and voice Settings. Codex coordinates, reviews, verifies synthetic tests and Docker, and commits milestones. Preserve unrelated brag-output/. Voice uses server-authoritative recipe context without changing cooking state. Real AWS audio and microphone remain for the user's final trial.
 
-## V2 discovery
+## GitHub Actions and host deployment
 
-Work on feature/v2 from updated main (df712e2). Target: a few trusted users sharing one private instance. User approved the additional features and requires each user to supply their own AWS connection. Chosen path: Web V2 first. TestFlight and native iOS work are deferred because the user has no paid Apple developer account. [V2 specification](docs/v2.md) records the implementation scope and boundaries.
-
-| Module | Responsibility | Depends on |
-|---|---|---|
-| identity | Username/password accounts, login/logout and account-scoped access | — |
-| user-context | Separate cooking sessions, preferences and provider access policy for each user | identity |
-| recipe-library | Shared global recipes and private personal recipes; explicit ownership and editing rules | identity |
-| recipe-generator | Generate editable recipe drafts and validate them before saving to the personal library | user-context, recipe-library |
-| hazard-alerts | Advisory visual concerns, evidence, severity, freshness and acknowledgment | user-context |
-| emergency-alerts | Prominent possible-emergency alerts and escalation UX | hazard-alerts |
-
-Suggested build order: identity → user-context and recipe-library → recipe-generator → hazard-alerts → emergency-alerts. Reuse immutable session recipe snapshots. Audit existing singleton session, credential-vault and voice-stream assumptions before enabling multiple simultaneous cooks.
-
-Defaults for implementation: first administrator setup, administrator-created accounts, administrator-managed global recipes, private personal recipes and per-user AWS vaults. One active cook per user; conservative instance-wide voice capacity remains visible. AI alerts are advisory and cannot establish kitchen safety. No automated emergency-service contact is authorized.
-
-Approved additions: personal cooking notes/history, pantry-aware suggestions, serving-size scaling, multiple named timers, pre-cook preparation checks and a monitoring-health display. Household handoff is deferred. Codex coordinates Opus backend and Luna frontend/review in verified slices:
-
-- [x] V2.1: backend accounts, session ownership, per-user settings/vaults and authorization tests (account UI integrates in V2.4).
-- [x] V2.2: backend global/personal recipe library, generation, profile inputs and validation tests.
-- [x] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
-- [x] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
-- [x] V2.5: independent isolation/security review, Linux/Compose verification and delivery docs.
-
-## V2 merge-readiness fixes
-
-Resolve the three review findings before merge: serialize vault create/unlock authorization against logout/password reset; preserve edited ingredient quantities in cooking display strings; and refresh monitoring error/freshness status after failed or aging observations. Opus owns bounded backend tests/fix; Luna owns bounded UI tests/fixes, one implementation writer at a time. Codex runs failing regressions before fixes, verifies the full backend/isolated WebKit suites, records evidence and commits verified milestones. Install only the isolated WebKit runtime under /tmp/sous-webkit. Preserve the user's .gitignore change and all private instance data. No merge, push or deployment is requested.
-
-Completed and verified on2026-11-26. Final evidence is in [validation](docs/validation.md) and [status](STATUS.md), including network-failure and changed-interval follow-ups, independent reviews, Linux/Docker checks and the full isolated WebKit suite.
+User requested a new branch from main for CI/CD and selected one Linux server with host Nginx. On feature/github-actions, add unit/synthetic socket checks, a smoke-tested GHCR image and an opt-in serialized SSH deployment by digest. Preserve loopback binding, one worker, named volume and shutdown grace period. Add opt-in exact trusted hosts/proxy handling and health checks, retaining CSRF/origin validation. Document setup and rollback in [deployment](docs/deployment.md). No live server deployment is part of branch preparation.
 
 ## References
 

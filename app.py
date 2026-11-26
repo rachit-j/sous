@@ -16,6 +16,7 @@ from typing import NamedTuple
 from flask import Flask, current_app, g, jsonify, render_template, request, session
 from flask_sock import Sock
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import accounts
 import cooking
@@ -127,15 +128,22 @@ def create_app(test_config=None):
     if test_config is None:
         from dotenv import load_dotenv
         load_dotenv()
+    trusted_hosts = [host.strip() for host in os.environ.get(
+        "SOUS_TRUSTED_HOSTS", "localhost,127.0.0.1,[::1]").split(",") if host.strip()]
+    if not trusted_hosts or any(host.startswith(".") or "*" in host for host in trusted_hosts):
+        raise ValueError("SOUS_TRUSTED_HOSTS must list exact hostnames, separated by commas.")
+    behind_proxy = os.environ.get("SOUS_BEHIND_PROXY") == "1"
     app.config.from_mapping(
         DATABASE=os.environ.get("SOUS_DATABASE") or os.path.join(app.instance_path, "sous.sqlite3"),
         SECRET_KEY=os.environ.get("SOUS_SECRET_KEY"),
         SECRET_KEY_FILE=os.path.join(app.instance_path, "secret_key"),
         MAX_CONTENT_LENGTH=MAX_REQUEST_BYTES,
         SESSION_COOKIE_SAMESITE="Lax",
-        PERMANENT_SESSION_LIFETIME=accounts.SESSION_TTL,  # the server-side login expires at the same age
-        # Local-only app: reject other Host headers (DNS rebinding). Ports are ignored.
-        TRUSTED_HOSTS=["localhost", "127.0.0.1", "[::1]"],
+        PERMANENT_SESSION_LIFETIME=accounts.SESSION_TTL,
+        SESSION_COOKIE_SECURE=behind_proxy,
+        # Exact allowed Host headers (DNS rebinding protection). Ports are ignored.
+        TRUSTED_HOSTS=trusted_hosts,
+        BEHIND_PROXY=behind_proxy,
         CLOCK=time.time,
         RECIPE_DIR=None,  # None: bundled recipes/ directory
         # V1 single-user vault path (None: settings.vault next to DATABASE). V2 never reads or writes
@@ -145,6 +153,10 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
+    if app.config["BEHIND_PROXY"]:
+        # Opt in only behind one trusted host Nginx proxy; keep the app port on loopback.
+        # Nginx forwards Host directly and overwrites X-Forwarded-Proto/For.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0)
     if not app.config["SECRET_KEY"]:
         app.config["SECRET_KEY"] = load_secret_key(app.config["SECRET_KEY_FILE"])
     app.extensions["sous_observations"] = {"lock": threading.Lock(), "busy": set()}
@@ -815,6 +827,11 @@ def observation_context(db, row, at):
 # --- Routes ---------------------------------------------------------------
 
 def register_routes(app):
+    @app.get("/healthz")
+    def health():
+        # Liveness only: no database access, provider requests or settings metadata.
+        return jsonify(status="ok")
+
     @app.get("/")
     def index():
         return render_template("index.html", csrf_token=csrf_token())

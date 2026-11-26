@@ -132,6 +132,58 @@ class SecurityTests(SousTestCase):
             # Public auth state: the test client's cookie is scoped to "localhost", not these hosts.
             self.assertEqual(self.client.get("/api/auth", base_url=host).status_code, 200, host)
 
+    def test_healthcheck_does_not_access_database_or_providers(self):
+        with mock.patch("app.get_db", side_effect=AssertionError("healthcheck accessed database")):
+            response = self.app.test_client().get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {"status": "ok"})
+        self.assertNotIn("Set-Cookie", response.headers)
+
+    def test_deployment_trusted_hosts_are_explicit(self):
+        with mock.patch.dict(os.environ, {"SOUS_TRUSTED_HOSTS": " localhost, sous.example.com "}):
+            app = self.make_app()
+        client = app.test_client()
+        self.assertEqual(client.get("/healthz", base_url="https://sous.example.com").status_code, 200)
+        self.assertEqual(client.get("/healthz", base_url="https://other.example.com").status_code, 400)
+        self.assertEqual(client.get("/healthz", base_url="https://child.sous.example.com").status_code, 400)
+        for value in (" ", ".example.com", "*.example.com"):
+            with self.subTest(value=value), mock.patch.dict(os.environ, {"SOUS_TRUSTED_HOSTS": value}):
+                with self.assertRaisesRegex(ValueError, "exact hostnames"):
+                    self.make_app()
+
+    def test_proxy_https_preserves_origin_and_csrf_checks(self):
+        with mock.patch.dict(os.environ, {"SOUS_BEHIND_PROXY": "1",
+                                          "SOUS_TRUSTED_HOSTS": "sous.example.com"}):
+            app = self.make_app()
+        self.assertTrue(app.config["SESSION_COOKIE_SECURE"])
+        client = app.test_client()
+        forwarded = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "192.0.2.10"}
+        page = client.get("/", base_url="http://sous.example.com", headers=forwarded)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Secure", page.headers["Set-Cookie"])
+        token = re.search(r'content="([^"]+)"', page.get_data(as_text=True)).group(1)
+        headers = {**forwarded, "Origin": "https://sous.example.com", "X-CSRF-Token": token}
+        # Secure cookies are sent over the browser's HTTPS origin; the forwarded header
+        # models Nginx's HTTPS-to-HTTP hop to Flask.
+        response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
+                               headers={**headers, "Origin": "https://evil.example"})
+        self.assertEqual(response.status_code, 403)
+        response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
+                               headers={**headers, "X-CSRF-Token": "wrong"})
+        self.assertEqual(response.status_code, 403)
+        response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
+                               headers=headers, environ_overrides={"wsgi.url_scheme": "http"})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        # X-Forwarded-Host is deliberately not trusted: Host remains the allowlist boundary.
+        self.assertEqual(client.get("/healthz", base_url="http://evil.example", headers={
+            **forwarded, "X-Forwarded-Host": "sous.example.com"}).status_code, 400)
+
+    def test_forwarded_scheme_is_ignored_by_default(self):
+        self.assertFalse(self.app.config["SESSION_COOKIE_SECURE"])
+        response = self.post("/api/sessions", START, Origin="https://localhost",
+                             **{"X-Forwarded-Proto": "https"})
+        self.assertEqual(response.status_code, 403)
+
     def test_secret_key_is_generated_once_and_reused(self):
         key_file = os.path.join(self.tmp.name, "instance", "secret_key")
         first = self.make_app(SECRET_KEY=None, SECRET_KEY_FILE=key_file)

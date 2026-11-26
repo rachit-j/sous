@@ -19,5 +19,6 @@ Stable Markdown documents and relative links are the source of truth for future 
 - [Secure settings](settings.md): in-app Bedrock configuration, encrypted vault and model selection.
 - [Conversational voice](voice.md): AWS live speech, interruption, lifecycle and privacy contract.
 - [Docker setup](docker.md): Compose startup, persisted data, host model routing and container tests.
+- [Deployment](deployment.md): GitHub Actions, GHCR images, host Nginx and SSH deployment.
 - [Validation evidence](validation.md): observed checks and known limitations.
 - [Quick start](../README.md): local setup, running and testing.

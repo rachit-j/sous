@@ -54,8 +54,8 @@ Sous does not mount ~/.aws. V2 never falls back to AWS_PROFILE, server environme
 - The process runs as the non-root user `sous` (uid 10001). Gunicorn's worker timeout is 210 s (a heartbeat limit, not a hard per-request limit; provider calls have their own timeouts, 180 s for local Ollama). On stop or restart, in-flight requests get up to 210 s to finish (Compose waits up to 220 s), so stopping during a cold-model analysis can take a while.
 - The image contains only runtime code, templates, static files and `recipes/*.json`; docs, tests and agent files are excluded by `.dockerignore` and the `COPY` allowlist.
 - The image includes the pinned official AWS streaming SDK and CRT HTTP/2 transport. [Conversational voice](voice.md) uses saved, unlocked credentials and the browser microphone; no host audio-device mount or additional service is required.
-- There is no container healthcheck. GET http://127.0.0.1:5050/api/auth checks availability without exposing account data; config/settings require login.
-- The app only accepts `localhost`, `127.0.0.1` and `[::1]` Host headers, so use those to browse. Camera access works on `localhost` origins.
+- Local Compose has no container healthcheck. `/healthz` provides a lightweight liveness check without database/provider calls; the production override checks it with Python's standard library, without installing `curl` in the image.
+- By default the app only accepts `localhost`, `127.0.0.1` and `[::1]` Host headers. Domain deployment uses an explicit `SOUS_TRUSTED_HOSTS` list and opt-in proxy mode; see [deployment](deployment.md). Camera access works on `localhost` origins or remote HTTPS.
 
 ## Optional container tests
 

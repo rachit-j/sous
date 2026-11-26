@@ -1,0 +1,14 @@
+# Use with compose.yaml; deploy.sh supplies SOUS_IMAGE as an immutable GHCR digest.
+# Keep the base file's loopback port, volume and 220-second shutdown grace period.
+services:
+  sous:
+    image: ${SOUS_IMAGE:?Set SOUS_IMAGE to the published image reference}
+    environment:
+      SOUS_BEHIND_PROXY: '1'
+      SOUS_TRUSTED_HOSTS: ${SOUS_TRUSTED_HOSTS:-localhost,127.0.0.1,[::1]}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5

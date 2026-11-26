@@ -16,6 +16,8 @@ Account-facing cloud calls never fall back to environment AWS keys or another ac
 
 Change your password in Settings using the current password. Administrators can reset an account password for the trusted group. Changing/resetting a password revokes affected sessions and locks the vault; it does not rewrite the independent encrypted vault. A stolen old cookie must not become valid after logout/reset.
 
+Vault creation and unlock recheck the sign-in session while holding the database write lock and vault guard. A request revoked by logout or password reset cannot later create or unlock the vault. Key derivation briefly holds that write lock, so other account writes wait during create/unlock.
+
 ### Local owner recovery
 
 If no administrator can sign in, an operator with access to the Docker host can use the local `reset-password` command. It creates a random password in a new file with0600 permissions, resets only the named account and revokes all its sign-in sessions. It never displays the password in terminal output. There is no unauthenticated HTTP recovery endpoint.

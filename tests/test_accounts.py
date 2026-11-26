@@ -752,5 +752,222 @@ class AccountRaceTests(AccountTestCase):
         self.login("bob", BOB_PW, expect=401)
 
 
+class VaultRevocationRaceTests(AccountTestCase):
+    """Vault create/unlock vs. a concurrent logout or administrator password reset (docs/v2.md:
+    the vault locks on logout/password reset).
+
+    A request authenticated before the revocation committed must not mutate the vault after it.
+    The stale-request tests pause it at app.settings_body: after require_login, and before the
+    route looks up current_vault() and enters the guarded transaction that rechecks the login. It
+    holds no database or vault lock there, so the revocation runs to completion from a separate
+    client. The in-progress tests instead pause after that recheck succeeded and require the
+    revocation's write transaction to wait. Every wait is bounded; there are no sleeps.
+    """
+
+    WAIT = 5
+    BLOCKED = 0.2  # bounded negative check: the revocation must still be waiting after this long
+
+    def revoke(self, how, admin, target_id, replayed):
+        """Revoke the target's login from a client other than the paused one."""
+        if how == "logout":  # same login (replayed cookie), separate test client
+            return replayed.send("POST", "/api/auth/logout")
+        return admin.send("PUT", f"/api/users/{target_id}/password", {"password": NEW_PW})
+
+    @staticmethod
+    def password_after(how):
+        return NEW_PW if how == "reset" else BOB_PW
+
+    def run_in_thread(self, results, name, call):
+        def target():
+            try:
+                results[name] = call()
+            except BaseException as exc:  # surfaced by the assertions in the main thread
+                results[name] = exc
+        thread = threading.Thread(target=target, name=f"vault-race-{name}", daemon=True)
+        thread.start()
+        return thread
+
+    def assert_response(self, results, name, statuses):
+        result = results.get(name)
+        self.assertFalse(result is None or isinstance(result, BaseException), repr(result))
+        self.assertIn(result.status_code, statuses, (name, result.get_json()))
+
+    def stale_vault_request(self, how, path, prepare):
+        """Pause Bob's create/unlock after authentication, revoke, resume. Returns Bob's vault."""
+        alice, bob = self.pair()
+        prepare(bob)
+        bob_id = bob.user["id"]
+        vault = sous_app.user_vault(self.app, bob_id)
+        self.assertTrue(vault.locked)
+        replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
+        paused, resume = threading.Event(), threading.Event()
+        original_body = sous_app.settings_body
+        held = []
+        results = {}
+
+        def held_body():
+            body = original_body()
+            if not held:  # only the stale request parses a settings body while patched
+                held.append(True)
+                paused.set()
+                resume.wait(self.WAIT)
+            return body
+
+        with mock.patch("app.settings_body", held_body):
+            worker = self.run_in_thread(results, "stale", lambda: bob.send("POST", path, {"passphrase": BOB_VAULT}))
+            try:
+                self.assertTrue(paused.wait(self.WAIT), "the vault request never reached its pause point")
+                revoked = self.revoke(how, alice, bob_id, replayed)
+                self.assertEqual(revoked.status_code, 200, revoked.get_json())
+                self.assertTrue(vault.locked)  # revocation completed while the request was paused
+            finally:
+                resume.set()
+                worker.join(self.WAIT)
+        self.assertFalse(worker.is_alive(), "the stale vault request did not finish")
+
+        self.assert_response(results, "stale", (401,))
+        self.assertTrue(vault.locked, "a revoked login unlocked or created the vault")
+        self.assertEqual(bob.get("/api/settings").status_code, 401)  # the login stays revoked
+        return vault, self.login("bob", self.password_after(how))
+
+    # --- stale request: authenticated before revocation, vault call after it
+
+    def prepare_locked_vault(self, bob):
+        self.init_vault(bob, BOB_VAULT)
+        self.assertEqual(bob.send("POST", "/api/settings/lock", {}).status_code, 200)
+
+    def assert_stale_unlock_fails(self, how):
+        vault, fresh = self.stale_vault_request(how, "/api/settings/unlock", self.prepare_locked_vault)
+        self.assertEqual(self.settings(fresh)["vault"], {"initialized": True, "locked": True})
+        self.assertIsNone(vault.connection())
+        # The passphrase is unchanged; a live login can still unlock deliberately.
+        self.assertEqual(fresh.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT}).status_code, 200)
+
+    def assert_stale_create_fails(self, how):
+        vault, fresh = self.stale_vault_request(how, "/api/settings/vault", lambda bob: None)
+        self.assertFalse(vault.initialized, "a revoked login set the account's vault passphrase")
+        self.assertFalse(os.path.exists(vault.path))
+        self.assertEqual(self.settings(fresh)["vault"], {"initialized": False, "locked": True})
+        self.init_vault(fresh, BOB_VAULT)  # the live login can still create it
+
+    def test_unlock_authenticated_before_logout_cannot_unlock_after_it(self):
+        self.assert_stale_unlock_fails("logout")
+
+    def test_unlock_authenticated_before_password_reset_cannot_unlock_after_it(self):
+        self.assert_stale_unlock_fails("reset")
+
+    def test_create_authenticated_before_logout_cannot_create_after_it(self):
+        self.assert_stale_create_fails("logout")
+
+    def test_create_authenticated_before_password_reset_cannot_create_after_it(self):
+        self.assert_stale_create_fails("reset")
+
+    # --- reverse ordering: the unlock completes (or is already mutating) before revocation
+
+    def assert_completed_unlock_then_revocation_locks(self, how):
+        alice, bob = self.pair()
+        self.prepare_locked_vault(bob)
+        vault = sous_app.user_vault(self.app, bob.user["id"])
+        replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
+        resp = bob.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT})
+        self.assertEqual(resp.status_code, 200, resp.get_json())
+        self.assertFalse(vault.locked)
+
+        revoked = self.revoke(how, alice, bob.user["id"], replayed)
+        self.assertEqual(revoked.status_code, 200, revoked.get_json())
+        self.assertTrue(vault.locked)
+        self.assertEqual(bob.get("/api/settings").status_code, 401)
+        fresh = self.login("bob", self.password_after(how))
+        self.assertEqual(self.settings(fresh)["vault"], {"initialized": True, "locked": True})
+
+    def live_logins(self, user_id):
+        """Committed auth_sessions rows, read on a separate connection (never takes the write lock)."""
+        with closing(sqlite3.connect(self.db_path, timeout=self.WAIT)) as db:
+            return db.execute("SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+    def assert_in_flight_unlock_then_revocation_locks(self, how):
+        """The unlock's login recheck and its vault change are one serialized step.
+
+        Bob's unlock is paused right after accounts.recheck_actor succeeded for it. The revocation
+        is then started and observed issuing BEGIN IMMEDIATE. It must not complete while the
+        unlock is paused: if the recheck ran outside the database write lock, the revocation would
+        commit here and the resumed unlock would change the vault for a revoked login. After
+        resuming, the unlock (authorized first) succeeds and the revocation then locks the vault.
+        """
+        alice, bob = self.pair()
+        self.prepare_locked_vault(bob)
+        bob_id = bob.user["id"]
+        vault = sous_app.user_vault(self.app, bob_id)
+        replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
+        logins_before = self.live_logins(bob_id)
+        self.assertGreater(logins_before, 0)
+        rechecked, revoke_begins, resume = threading.Event(), threading.Event(), threading.Event()
+        original_recheck, original_connect = accounts.recheck_actor, sous_app.connect
+        results = {}
+
+        def held_recheck(db, user_id, token_hash, admin=False):
+            original_recheck(db, user_id, token_hash, admin=admin)  # raises: no pause, test fails
+            if threading.current_thread().name == "vault-race-unlock" and not rechecked.is_set():
+                rechecked.set()
+                resume.wait(self.WAIT)
+
+        class TracedConnection:
+            """Delegates to a real connection; reports the revocation's write-lock attempt."""
+
+            def __init__(self, db):
+                self._db = db
+
+            def execute(self, sql, *args):
+                if sql == "BEGIN IMMEDIATE" and threading.current_thread().name == "vault-race-revoke":
+                    revoke_begins.set()
+                return self._db.execute(sql, *args)
+
+            def __getattr__(self, name):
+                return getattr(self._db, name)
+
+        threads = []
+        with mock.patch("accounts.recheck_actor", held_recheck), \
+                mock.patch("app.connect", lambda path: TracedConnection(original_connect(path))):
+            threads.append(self.run_in_thread(
+                results, "unlock", lambda: bob.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT})))
+            try:
+                self.assertTrue(rechecked.wait(self.WAIT), "the unlock never passed its login recheck")
+                self.assertTrue(vault.locked)  # paused after the recheck, before the vault change
+                threads.append(self.run_in_thread(
+                    results, "revoke", lambda: self.revoke(how, alice, bob_id, replayed)))
+                self.assertTrue(revoke_begins.wait(self.WAIT), "the revocation never began its transaction")
+                threads[1].join(self.BLOCKED)
+                self.assertTrue(threads[1].is_alive(),
+                                "revocation completed while an authorized unlock was between recheck and change")
+                self.assertNotIn("revoke", results)
+                self.assertEqual(self.live_logins(bob_id), logins_before)  # nothing revoked yet
+                self.assertTrue(vault.locked)
+            finally:
+                resume.set()
+                for thread in threads:
+                    thread.join(self.WAIT)
+        self.assertFalse(any(t.is_alive() for t in threads), "a request did not finish")
+
+        self.assert_response(results, "unlock", (200,))  # authorized before the revocation committed
+        self.assert_response(results, "revoke", (200,))
+        self.assertEqual(self.live_logins(bob_id), 0)
+        self.assertTrue(vault.locked, "revocation did not leave the vault locked")
+        self.assertEqual(bob.get("/api/settings").status_code, 401)
+        fresh = self.login("bob", self.password_after(how))
+        self.assertEqual(self.settings(fresh)["vault"], {"initialized": True, "locked": True})
+
+    def test_completed_unlock_then_logout_leaves_vault_locked(self):
+        self.assert_completed_unlock_then_revocation_locks("logout")
+
+    def test_completed_unlock_then_password_reset_leaves_vault_locked(self):
+        self.assert_completed_unlock_then_revocation_locks("reset")
+
+    def test_logout_waits_for_unlock_already_past_its_login_recheck(self):
+        self.assert_in_flight_unlock_then_revocation_locks("logout")
+
+    def test_password_reset_waits_for_unlock_already_past_its_login_recheck(self):
+        self.assert_in_flight_unlock_then_revocation_locks("reset")
+
+
 if __name__ == "__main__":
     unittest.main()

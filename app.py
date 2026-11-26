@@ -988,14 +988,31 @@ def register_settings_routes(app):
     def get_settings():
         return respond_settings()
 
+    def authorized_vault_change(change):
+        """Create/unlock only while this request's login is still live.
+
+        The body is parsed first, outside any lock. Then, in the established order (database write
+        lock, then the vault guard), the captured login is rechecked and the vault changed. A
+        logout or reset that committed first wins (401, vault untouched); one that starts later
+        waits for the write lock and locks the vault after this request commits. Key derivation
+        runs under both locks, so other database writes wait for one scrypt.
+        """
+        passphrase = settings_body().get("passphrase")
+        user_id, token_hash = current_user_id(), g.auth_token_hash
+        vault = current_vault()
+        db = get_db()
+        with transaction(db, vault.guard()):
+            accounts.recheck_actor(db, user_id, token_hash)
+            change(vault, passphrase)
+
     @app.post("/api/settings/vault")
     def create_vault():
-        current_vault().create(settings_body().get("passphrase"))
+        authorized_vault_change(Vault.create)
         return respond_settings(201)
 
     @app.post("/api/settings/unlock")
     def unlock_vault():
-        current_vault().unlock(settings_body().get("passphrase"))
+        authorized_vault_change(Vault.unlock)
         return respond_settings()
 
     @app.post("/api/settings/lock")

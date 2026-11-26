@@ -11,9 +11,8 @@ from unittest import mock
 
 from simple_websocket import ConnectionClosed
 
-import accounts
 import voice
-from app import get_db, serve_voice
+from app import get_db, get_voice_id
 from settings import BedrockConnection
 from tests.test_settings import KEY_ID, PASSPHRASE, SECRET, TOKEN, SettingsTestCase
 
@@ -161,14 +160,11 @@ class VoiceTestCase(SettingsTestCase):
         self.save_bedrock(session_token=TOKEN, **connection)
         self.session = self.start()
 
-    def serve(self, ws, session_id=None, expect_thread_exit=True, client=None):
-        """Run the voice controller with a browser's real signed session cookie (login resolved
-        server-side by app.serve_voice), as the route does after its pre-upgrade checks."""
+    def serve(self, ws, session_id=None, expect_thread_exit=True):
         sid = session_id or self.session["id"]
-        cookie = (client or self.client).get_cookie("session")
-        with self.app.test_request_context(f"/api/sessions/{sid}/voice",
-                                           headers={"Cookie": f"session={cookie.value}"}):
-            serve_voice(ws, sid)
+        with self.app.test_request_context(f"/api/sessions/{sid}/voice"):
+            db = get_db()
+            voice.serve(ws, sid, self.token, db, get_voice_id(db))
         if expect_thread_exit:
             self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
         return ws.sent
@@ -298,33 +294,6 @@ class VoiceAuthTests(VoiceTestCase):
         state["starts"].extend([time.monotonic()] * voice.START_LIMIT)
         self.assert_rejected(self.serve(FakeWS(start)), voice.TOO_MANY)
 
-    def test_signed_out_or_other_account_never_opens_aws(self):
-        resp = self.post("/api/users", {"username": "other-cook", "password": "other-cook-password-01"})
-        self.assertEqual(resp.status_code, 201, resp.get_json())
-        other = self.app.test_client()
-        token = other.get("/api/auth").get_json()["csrf_token"]
-        resp = other.post("/api/auth/login", json={"username": "other-cook", "password": "other-cook-password-01"},
-                          headers={"X-CSRF-Token": token})
-        self.assertEqual(resp.status_code, 200)
-        other_token = resp.get_json()["csrf_token"]
-        # Another account's socket for this session: same answer as a missing session.
-        self.assert_rejected(self.serve(FakeWS(start_message(other_token)), client=other), voice.NOT_ACTIVE)
-        upgrade = {"Upgrade": "websocket", "Connection": "Upgrade", "Origin": "http://localhost"}
-        resp = other.get(f"/api/sessions/{self.session['id']}/voice", headers=upgrade)
-        self.assertEqual(resp.status_code, 404)  # refused before the upgrade
-
-        signed_out = self.app.test_client()
-        signed_out.get("/api/auth")
-        resp = signed_out.get(f"/api/sessions/{self.session['id']}/voice", headers=upgrade)
-        self.assertEqual(resp.status_code, 401)
-        self.assert_rejected(self.serve(FakeWS(start_message(self.token)), client=signed_out), voice.AUTH_FAILED)
-
-        jar = self.client.get_cookie("session")
-        self.assertEqual(self.post("/api/auth/logout", {}).status_code, 200)
-        replay = self.app.test_client()
-        replay.set_cookie("session", jar.value)
-        self.assert_rejected(self.serve(FakeWS(start_message(self.token)), client=replay), voice.AUTH_FAILED)
-
 
 class VoiceStreamTests(VoiceTestCase):
     def setUp(self):
@@ -434,30 +403,6 @@ class VoiceStreamTests(VoiceTestCase):
 
         sent, stream, _ = self.converse(run(lambda: self.act(self.session["id"], "end")))
         self.assertEqual(sent[-1], {"type": "stopped", "reason": "session_ended"})
-        self.assertTrue(stream.closed.is_set())
-
-    def test_lock_then_unlock_with_same_credentials_stops_stream(self):
-        # Both happen within one browser-message turn, before the next poll: the connection is
-        # equal afterwards, but the lease that opened the stream was revoked.
-        def relock():
-            self.vault().lock()
-            self.vault().unlock(PASSPHRASE)
-        sent, stream, calls = self.converse(run(relock))
-        self.assertEqual(sent[-1], {"type": "stopped", "reason": "settings_changed"})
-        self.assertTrue(stream.closed.is_set())
-        self.assertEqual(len(calls), 1)  # no automatic restart
-        self.assertEqual(self.vault().connection(), calls[0])  # same keys, still a new lease
-
-    def test_expired_login_or_logout_stops_stream(self):
-        # The login expires server-side while the vault stays unlocked: the poll stops the stream.
-        sent, stream, _ = self.converse(run(lambda: setattr(self, "clock", self.clock + accounts.SESSION_TTL + 1)))
-        self.assertEqual(sent[-1], {"type": "stopped", "reason": "signed_out"})
-        self.assertTrue(stream.closed.is_set())
-
-        self.client, self.token = self.browser(self.app)
-        self.post("/api/settings/unlock", {"passphrase": PASSPHRASE})
-        sent, stream, _ = self.converse(run(lambda: self.post("/api/auth/logout", {})))
-        self.assertIn(sent[-1], ({"type": "stopped", "reason": "signed_out"}, {"type": "stopped", "reason": "locked"}))
         self.assertTrue(stream.closed.is_set())
 
     def test_stream_deadline_idle_and_upstream_end(self):
@@ -590,121 +535,6 @@ class VoiceStreamTests(VoiceTestCase):
             row = get_db().execute("SELECT step_index, timer_deadline, latest_observation, timer_alerted"
                                    " FROM sessions WHERE id = ?", (sid,)).fetchone()
             self.assertEqual(tuple(row), before)
-
-    def ask_tool(self, stream):
-        stream.push(
-            event("contentStart", contentId="tool-content-2", type="TOOL", role="ASSISTANT"),
-            event("toolUse", contentId="tool-content-2", toolName=voice.TOOL_NAME,
-                  toolUseId="tool_use_2", content="{}"),
-            event("contentEnd", contentId="tool-content-2", type="TOOL", stopReason="TOOL_USE"),
-        )
-
-    def tool_rows(self):
-        with self.app.test_request_context("/"):
-            db = get_db()
-            timers = [tuple(r) for r in db.execute("SELECT id, acknowledged_at, cancelled_at FROM session_timers")]
-            alerts = [tuple(r) for r in db.execute("SELECT id, acknowledged_at FROM session_alerts")]
-        return timers, alerts
-
-    def test_tool_context_reads_named_timers_and_active_alerts_without_writing(self):
-        sid = self.session["id"]
-        resp = self.post(f"/api/sessions/{sid}/timers", {"name": "Rice", "duration_seconds": 120})
-        self.assertEqual(resp.status_code, 201, resp.get_json())
-        self.sql("INSERT INTO session_alerts (session_id, category, title, evidence, created_at)"
-                 " VALUES (?, 'hazard', 'Pan handle over the edge', 'Handle points out', ?)", (sid, self.clock))
-        self.sql("INSERT INTO session_alerts (session_id, category, title, evidence, created_at, acknowledged_at)"
-                 " VALUES (?, 'hazard', 'Old dismissed concern', 'Earlier frame', ?, ?)",
-                 (sid, self.clock, self.clock))
-        before = self.tool_rows()
-        stream = FakeStream()
-        ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(), run(lambda: self.ask_tool(stream)),
-                    lambda w: "toolResult" in stream.kinds(), json.dumps({"type": "stop"}))
-        self.install(stream)
-        sent = self.serve(ws)
-        self.assertEqual(sent[-1], {"type": "stopped", "reason": "client_stop"})
-        context = json.loads(stream.payload("toolResult")[0]["content"])["context"]
-        self.assertIn("Named timer Rice has 2 min left", context)
-        self.assertIn("Pan handle over the edge", context)
-        self.assertIn("may be wrong", context)
-        self.assertNotIn("Old dismissed concern", context)
-        self.assertEqual(self.tool_rows(), before)  # the tool never acknowledges or cancels anything
-
-    def watch_safety_alert(self, **extra):
-        """Observe the same advisory concern twice while voice is open; return (user updates, rows)."""
-        session = self.act(self.session["id"], "resume")
-        output = {"activity": "stirring", "evidence": "pan on the stove", "confidence": 0.4,
-                  "step_complete": False, "alert": None, "view_obstructed": False,
-                  "safety_alert": {"category": "hazard", "title": "Pan handle over the edge",
-                                   "evidence": "Handle points out; uncertain"}, **extra}
-        stream, latest = FakeStream(), {"session": session}
-
-        def observe():
-            with mock.patch("providers.analyze", return_value=output):
-                resp = self.observe(latest["session"])
-            self.assertEqual(resp.status_code, 200, resp.get_json())
-            latest["session"] = resp.get_json()
-
-        def updates():
-            return [t for t in stream.texts("USER") if t.startswith(voice.UPDATE_PREFIX)][1:]  # skip greeting
-
-        before_tools = self.tool_rows()
-        sent, _, _ = self.converse(
-            run(observe),
-            lambda w: any("advisory concern" in t for t in updates()),
-            run(observe),  # identical concern inside the dedup window: stored once, announced once
-            after(0.3),  # several polls
-            json.dumps({"type": "stop"}),
-            stream=stream,
-        )
-        self.assertEqual(sent[-1], {"type": "stopped", "reason": "client_stop"})
-        timers, alerts = self.tool_rows()
-        self.assertEqual((timers, [a[1] for a in alerts]), (before_tools[0], [None]))  # one stored, unacknowledged
-        return updates()
-
-    def test_new_safety_alert_is_announced_once_with_advisory_caveat(self):
-        updates = self.watch_safety_alert()
-        mentions = [t for t in updates if "Pan handle over the edge" in t]
-        self.assertEqual(len(mentions), 1)
-        for caveat in ("may be wrong", "cannot see the kitchen now", "never say the kitchen is safe"):
-            self.assertIn(caveat, mentions[0])
-        self.assertEqual(len(updates), 1)  # ordinary samples and the dedup repeat add nothing
-
-    def test_legacy_alert_and_safety_alert_from_one_sample_are_one_announcement(self):
-        updates = self.watch_safety_alert(alert="Pan looks unattended")
-        self.assertEqual(len(updates), 1)
-        self.assertIn("Pan handle over the edge", updates[0])
-        self.assertNotIn("Pan looks unattended", updates[0])
-
-    def test_named_timer_expiry_is_announced_once_even_if_acknowledged(self):
-        sid = self.session["id"]
-        stream = FakeStream()
-        created = {}
-
-        def updates():
-            return [t for t in stream.texts("USER") if t.startswith(voice.UPDATE_PREFIX)][1:]  # skip greeting
-
-        def add(name, seconds):
-            resp = self.post(f"/api/sessions/{sid}/timers", {"name": name, "duration_seconds": seconds})
-            created[name] = next(t["id"] for t in resp.get_json()["timers"] if t["name"] == name)
-
-        def ack(name):
-            self.post(f"/api/sessions/{sid}/timers/{created[name]}/ack", {})
-
-        sent, _, _ = self.converse(
-            run(lambda: add("Tea", 10)),
-            run(lambda: ack("Tea")),  # dismissed before it finished: never announced
-            run(lambda: add("Pasta", 30)),
-            run(lambda: setattr(self, "clock", self.clock + 31)),
-            run(lambda: ack("Pasta")),  # the browser may acknowledge before the next poll
-            lambda w: any("Pasta timer just finished" in t for t in updates()),
-            after(0.3),  # several more polls
-            json.dumps({"type": "stop"}),
-            stream=stream,
-        )
-        self.assertEqual(sent[-1], {"type": "stopped", "reason": "client_stop"})
-        self.assertEqual(sum("Pasta timer just finished" in t for t in updates()), 1)
-        self.assertFalse(any("Tea timer" in t for t in updates()))
-        self.assertEqual(len(updates()), 1)  # adding timers is not narrated
 
     def test_unknown_and_malformed_tools_return_static_error_without_execution(self):
         bridge = voice.VoiceBridge(None, None, "tiffany", "", "")

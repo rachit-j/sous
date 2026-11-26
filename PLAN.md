@@ -1,7 +1,5 @@
 # Sous Flask MVP
 
-Current work is the verified [V2 merge-readiness fixes](#v2-merge-readiness-fixes) for the delivered private multi-user web app with individual AWS connections. Earlier sections record V1 iterations and V2 delivery. Native iOS and TestFlight are deferred.
-
 ## Objective
 
 A local laptop-webcam cooking assistant: persistent recipe state, periodic visual monitoring, automatic step progression, user corrections, one timer, and voice interaction. Recipes are structured data; scrambled eggs is the first bundled/default recipe, not a restriction or tuning target. Codex coordinates Claude Code and Luna and verifies the result.

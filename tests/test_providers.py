@@ -20,6 +20,8 @@ SECRET = "sk-test-secret-123"
 GOOD = {"activity": "whisking eggs", "evidence": "uniform yellow liquid in bowl",
         "confidence": 0.9, "step_complete": True, "alert": None}
 GOOD_TEXT = json.dumps(GOOD)
+# Older replies omit the advisory fields; the parser adds their defaults.
+PARSED = {**GOOD, "safety_alert": None, "view_obstructed": False}
 CONTEXT = {
     "recipe": SCRAMBLED_EGGS,
     "step_index": 1,
@@ -95,7 +97,7 @@ class ProviderTestCase(unittest.TestCase):
 
 class WireShapeTests(ProviderTestCase):
     def test_ollama_chat_request_and_response(self):
-        self.assertEqual(self.call("ollama", OLLAMA_OK, model="qwen3-vl:8b"), GOOD)
+        self.assertEqual(self.call("ollama", OLLAMA_OK, model="qwen3-vl:8b"), PARSED)
         url, _headers, body, timeout = self.sent()
         self.assertEqual(url, "http://ollama.local:11434/api/chat")
         self.assertEqual(timeout, (5, 180))
@@ -115,7 +117,7 @@ class WireShapeTests(ProviderTestCase):
         self.assertEqual(self.sent()[0], "http://localhost:11434/api/chat")
 
     def test_openai_responses_request_and_output_parsing(self):
-        self.assertEqual(self.call("openai", OPENAI_OK), GOOD)
+        self.assertEqual(self.call("openai", OPENAI_OK), PARSED)
         url, headers, body, timeout = self.sent()
         self.assertEqual(url, "https://api.openai.com/v1/responses")
         self.assertEqual(headers, {"Authorization": f"Bearer {SECRET}"})
@@ -127,7 +129,7 @@ class WireShapeTests(ProviderTestCase):
         self.assertEqual(image, {"type": "input_image", "image_url": "data:image/jpeg;base64," + JPEG_B64})
 
     def test_anthropic_messages_request_and_text_only_parsing(self):
-        self.assertEqual(self.call("anthropic", ANTHROPIC_OK), GOOD)
+        self.assertEqual(self.call("anthropic", ANTHROPIC_OK), PARSED)
         url, headers, body, timeout = self.sent()
         self.assertEqual(url, "https://api.anthropic.com/v1/messages")
         self.assertEqual(headers, {"x-api-key": SECRET, "anthropic-version": "2023-06-01"})
@@ -147,7 +149,7 @@ class WireShapeTests(ProviderTestCase):
             "stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2},
         }
         arn = "arn:aws:bedrock:us-west-2:123456789012:inference-profile/us.example.model-v1:0"
-        self.assertEqual(analyze("bedrock", arn, JPEG, CONTEXT), GOOD)
+        self.assertEqual(analyze("bedrock", arn, JPEG, CONTEXT), PARSED)
         session_cls.assert_called_once_with(profile_name="cook", region_name="us-west-2")
         (service,), kwargs = session_cls.return_value.client.call_args
         config = kwargs["config"]
@@ -169,7 +171,7 @@ class WireShapeTests(ProviderTestCase):
         client.converse.return_value = {"output": {"message": {"content": [{"text": GOOD_TEXT}]}},
                                         "stopReason": "end_turn"}
         conn = BedrockConnection("us-west-2", "AKIASENTINEL0000TEST", SECRET, None)
-        self.assertEqual(analyze("bedrock", "vision-model", JPEG, CONTEXT, bedrock=conn), GOOD)
+        self.assertEqual(analyze("bedrock", "vision-model", JPEG, CONTEXT, bedrock=conn), PARSED)
         session_cls.assert_called_once_with(aws_access_key_id="AKIASENTINEL0000TEST", aws_secret_access_key=SECRET,
                                             aws_session_token=None, region_name="us-west-2")
         self.assertEqual(dict(os.environ), env_before)
@@ -255,9 +257,37 @@ class FailureTests(ProviderTestCase):
 
 class ParseTests(unittest.TestCase):
     def test_accepts_plain_or_single_fenced_json_and_drops_extra_keys(self):
-        self.assertEqual(parse_observation(GOOD_TEXT), GOOD)
-        self.assertEqual(parse_observation("```json\n" + GOOD_TEXT + "\n```"), GOOD)
-        self.assertEqual(parse_observation(json.dumps({**GOOD, "next_step": 5})), GOOD)
+        self.assertEqual(parse_observation(GOOD_TEXT), PARSED)
+        self.assertEqual(parse_observation("```json\n" + GOOD_TEXT + "\n```"), PARSED)
+        self.assertEqual(parse_observation(json.dumps({**GOOD, "next_step": 5})), PARSED)
+
+    def test_safety_fields_are_normalized_and_strictly_validated(self):
+        alert = {"category": "possible_emergency", "title": "  Smoke-like haze  ",
+                 "evidence": "Gray haze above the pan; uncertain", "extra": "dropped"}
+        parsed = parse_observation(json.dumps({**GOOD, "safety_alert": alert, "view_obstructed": True}))
+        self.assertEqual(parsed["safety_alert"], {"category": "possible_emergency", "title": "Smoke-like haze",
+                                                  "evidence": "Gray haze above the pan; uncertain"})
+        self.assertIs(parsed["view_obstructed"], True)
+        explicit_none = parse_observation(json.dumps({**GOOD, "safety_alert": None, "view_obstructed": False}))
+        self.assertEqual(explicit_none, PARSED)
+        for bad in ({"safety_alert": "fire"}, {"safety_alert": []},
+                    {"safety_alert": {"category": "hazard", "title": "", "evidence": "x"}},
+                    {"safety_alert": {"category": "hazard", "title": "x"}},
+                    {"safety_alert": {"category": "HAZARD", "title": "x", "evidence": "y"}},
+                    {"view_obstructed": "yes"}, {"view_obstructed": 1}):
+            with self.subTest(bad=bad), self.assertRaises(InvalidOutput):
+                parse_observation(json.dumps({**GOOD, **bad}))
+
+    def test_schema_and_prompts_describe_advisory_safety_fields(self):
+        schema = providers.OBSERVATION_SCHEMA
+        self.assertEqual(set(schema["required"]), set(providers.FIELDS + providers.SAFETY_FIELDS))
+        self.assertEqual(schema["properties"]["view_obstructed"], {"type": "boolean"})
+        alert_object = schema["properties"]["safety_alert"]["anyOf"][1]
+        self.assertEqual(alert_object["properties"]["category"]["enum"], ["hazard", "possible_emergency"])
+        system = providers.SYSTEM_PROMPT.lower()
+        for phrase in ("possible_emergency", "uncertain", "null never means it is"):
+            self.assertIn(phrase, system)
+        self.assertIn("view_obstructed", providers.build_prompt(CONTEXT))
 
     def test_rejects_non_strict_output(self):
         for text in (None, "   ", f"Answer: {GOOD_TEXT}", f"{GOOD_TEXT} trailing",

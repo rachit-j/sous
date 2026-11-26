@@ -104,6 +104,9 @@ class VoiceSocketIntegrationTests(unittest.TestCase):
         with self.http.open(self.origin + "/", timeout=3) as response:
             html = response.read().decode("utf-8")
         self.csrf = re.search(r'<meta name="csrf-token" content="([^"]+)"', html).group(1)
+        # Real first-administrator setup; it rotates the CSRF token and sets the login cookie.
+        self.csrf = self.request("POST", "/api/auth/setup", {
+            "username": "socket-cook", "password": "synthetic socket login password"})["csrf_token"]
         self.cookie_header = "; ".join(f"{cookie.name}={cookie.value}" for cookie in self.cookies)
         self.request("POST", "/api/settings/vault", {"passphrase": "synthetic socket vault passphrase"})
         self.request("PUT", "/api/settings/bedrock", {
@@ -140,6 +143,14 @@ class VoiceSocketIntegrationTests(unittest.TestCase):
             PortAwareClient.connect(
                 f"ws://127.0.0.1:{self.server.server_port}/api/sessions/{self.session['id']}/voice",
                 headers={"Origin": "http://evil.example", "Cookie": self.cookie_header},
+            )
+        self.assertEqual(self.streams, [])
+
+    def test_rejects_signed_out_websocket_before_upgrade(self):
+        with self.assertRaises(Exception):
+            PortAwareClient.connect(
+                f"ws://127.0.0.1:{self.server.server_port}/api/sessions/{self.session['id']}/voice",
+                headers={"Origin": self.origin},  # no login cookie
             )
         self.assertEqual(self.streams, [])
 

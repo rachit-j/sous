@@ -179,6 +179,7 @@ def create_app(test_config=None):
     app.register_error_handler(CookingError, lambda e: (jsonify(error=e.message), e.status))
     app.register_error_handler(HTTPException, http_error)
     app.register_error_handler(Exception, unexpected_error)
+    app.before_request(answer_liveness)  # first: later hooks (CSRF, login) must not see /healthz
     app.before_request(check_origin_and_csrf)
     app.before_request(require_login)
     app.after_request(security_headers)
@@ -412,6 +413,18 @@ def unexpected_error(exc):
     else:
         current_app.logger.exception("Unhandled error")
     return jsonify(error="Internal server error."), 500
+
+
+def answer_liveness():
+    """Serve the routed health endpoint before any later before_request hook runs.
+
+    Keyed on the matched endpoint, not the raw path: a request whose Host failed TRUSTED_HOSTS
+    validation has no endpoint and still gets 400. Only GET/HEAD; never touches the database,
+    session cookie, vault or providers.
+    """
+    if request.endpoint == "health" and request.method in ("GET", "HEAD"):
+        return current_app.view_functions["health"](**(request.view_args or {}))
+    return None
 
 
 def security_headers(response):

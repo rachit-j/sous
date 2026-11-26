@@ -74,6 +74,10 @@ Implement [AWS live voice](docs/voice.md) on feature/conversational-voice, creat
 
 User requested a new branch from main for CI/CD and selected one Linux server with host Nginx. On feature/github-actions, add unit/synthetic socket checks, a smoke-tested GHCR image and an opt-in serialized SSH deployment by digest. Preserve loopback binding, one worker, named volume and shutdown grace period. Add opt-in exact trusted hosts/proxy handling and health checks, retaining CSRF/origin validation. Document setup and rollback in [deployment](docs/deployment.md). No live server deployment is part of branch preparation.
 
+## V2 merge compatibility
+
+On main, make deployment/proxy tests support authenticated V2 while retaining current V1 coverage. Preserve database-free public liveness, exact trusted hosts, HTTPS/CSRF checks and protected cooking APIs. Use the public app shell for the CI smoke request and automatically syntax-check every static JavaScript file. Exclude sous-setup/ from Docker context; preserve the user's .gitignore edit. Opus owns only app.py, tests/test_app.py, .github/workflows/ci.yml and .dockerignore; Codex verifies main and the user's merged V2 in an isolated /tmp checkout, updates records and commits locally. No feature merge, push or deployment is requested.
+
 ## References
 
 - [Proposal](HAI%20Project%20Proposal.md)

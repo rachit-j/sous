@@ -78,6 +78,49 @@ class SousV2AccountBrowserTests(unittest.TestCase):
         self.page.locator("#admin-setup-form button[type=submit]").click()
         self.page.locator("#setup-panel").wait_for(state="visible")
 
+    def start_synthetic_camera_session(self, sample_interval=None):
+        self.provider_fail_closed = patch("providers.analyze", side_effect=AssertionError("Unexpected unmocked provider call."))
+        self.provider_fail_closed.start()
+        self.addCleanup(self.provider_fail_closed.stop)
+        self.create_first_admin()
+        if sample_interval is not None:
+            self.page.locator("#nav-settings").click()
+            self.page.locator("#settings-panel").wait_for(state="visible")
+            self.page.locator("#sample-interval").fill(str(sample_interval))
+            self.page.locator("#interval-form button[type=submit]").click()
+            self.page.get_by_text("Saved. New checks use this interval.").wait_for()
+            self.page.locator("#nav-cooking").click()
+            self.page.locator("#setup-panel").wait_for(state="visible")
+        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
+            self.page.locator("#provider-overrides > summary").click()
+        self.page.locator("#provider-select").select_option("ollama")
+        self.page.locator("#model-input").fill("synthetic-no-call")
+        self.page.locator("#start-session").click()
+        self.page.locator("#session-panel").wait_for(state="visible")
+        self.page.locator("#camera-toggle").click()
+        self.page.locator("#camera-indicator.on").wait_for(state="visible")
+        self.page.wait_for_function("document.querySelector('#camera-video').readyState >= HTMLMediaElement.HAVE_CURRENT_DATA")
+
+    def analyze_with_synthetic_result(self, result):
+        with patch("providers.analyze", return_value=result):
+            if self.page.locator("#monitoring-toggle").inner_text().strip() == "Resume guidance":
+                self.page.locator("#monitoring-toggle").click()
+                self.page.get_by_text("Guidance on").wait_for()
+            self.page.locator("#analyze-now").click()
+            self.page.wait_for_function("document.querySelector('#camera-message').textContent.includes('Look complete.')")
+
+    @staticmethod
+    def synthetic_observation():
+        return {
+            "activity": "A pan is on the counter.",
+            "evidence": "The current step is not visibly complete.",
+            "confidence": 0.2,
+            "step_complete": False,
+            "alert": None,
+            "safety_alert": None,
+            "view_obstructed": False,
+        }
+
     def login(self, username, password):
         self.page.locator("#login-form").wait_for(state="visible")
         self.page.locator("#login-username").fill(username)
@@ -88,6 +131,120 @@ class SousV2AccountBrowserTests(unittest.TestCase):
     def logout(self):
         self.page.locator("#logout-button").click()
         self.page.locator("#login-form").wait_for(state="visible")
+
+    def test_scaled_recipe_quantities_survive_save_and_cooking_checklist(self):
+        self.create_first_admin()
+        self.page.locator("#nav-recipes").click()
+        self.page.locator("#new-recipe-button").click()
+        self.page.locator("#edit-recipe-name").fill("Measured rice")
+        self.page.locator("#edit-recipe-description").fill("A recipe with known and unknown amounts.")
+        self.page.locator("#edit-servings").fill("2")
+
+        rows = self.page.locator(".ingredient-row")
+        rows.nth(0).locator(".ingredient-name").fill("Rice")
+        rows.nth(0).locator(".ingredient-quantity").fill("0.5")
+        rows.nth(0).locator(".ingredient-unit").fill("cup")
+        self.page.locator("#add-ingredient").click()
+        rows = self.page.locator(".ingredient-row")
+        rows.nth(1).locator(".ingredient-name").fill("Salt")
+        rows.nth(1).locator(".ingredient-quantity").fill("0.25")
+        rows.nth(1).locator(".ingredient-unit").fill("tsp")
+        self.page.locator("#add-ingredient").click()
+        rows = self.page.locator(".ingredient-row")
+        rows.nth(2).locator(".ingredient-name").fill("Water")
+
+        self.page.locator(".step-editor-row:first-child .step-name").fill("Cook rice")
+        self.page.locator(".step-editor-row:first-child .step-instruction-edit").fill("Simmer the rice.")
+        self.page.locator(".step-editor-row:first-child .step-cue").fill("The rice is tender.")
+        self.page.locator(".step-editor-row:nth-child(2) [data-action='remove-row']").click()
+        self.page.locator("#recipe-form button[type=submit]").click()
+        self.page.locator("#recipe-library .recipe-entry h2", has_text="Measured rice").wait_for()
+
+        source = self.page.locator(".recipe-entry").filter(has_text="Measured rice")
+        source.locator(".recipe-scale-servings").fill("4")
+        source.get_by_role("button", name="Scale servings").click()
+        self.page.locator("#recipe-editor").wait_for(state="visible")
+        self.assertEqual(self.page.locator(".ingredient-row").nth(0).locator(".ingredient-quantity").input_value(), "1")
+        self.assertEqual(self.page.locator(".ingredient-row").nth(1).locator(".ingredient-quantity").input_value(), "0.5")
+        self.assertEqual(self.page.locator(".ingredient-row").nth(2).locator(".ingredient-quantity").input_value(), "")
+        self.page.locator("#recipe-form button[type=submit]").click()
+        self.page.locator("#recipe-library .recipe-entry h2", has_text="Measured rice").wait_for()
+
+        origin = self.page.evaluate("location.origin")
+        recipes_response = self.page.request.get(f"{origin}/api/recipes")
+        self.assertEqual(recipes_response.status, 200)
+        scaled = next(recipe for recipe in recipes_response.json()["recipes"]
+                      if recipe["name"] == "Measured rice" and recipe["servings"] == 4)
+        expected = ["1 cup Rice", "0.5 tsp Salt", "Water"]
+        self.assertEqual(scaled["ingredients"], expected)
+        self.assertEqual([item["quantity"] for item in scaled["ingredient_details"]], [1, 0.5, None])
+
+        card = self.page.locator(".recipe-entry").filter(has_text="Measured rice").filter(has_text="serves 4")
+        card.get_by_role("button", name="Cook this").click()
+        self.page.locator("#setup-panel").wait_for(state="visible")
+        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
+            self.page.locator("#provider-overrides > summary").click()
+        self.page.locator("#provider-select").select_option("ollama")
+        self.page.locator("#model-input").fill("synthetic-no-call")
+        self.page.locator("#start-session").click()
+        self.page.locator("#session-panel").wait_for(state="visible")
+        session = self.page.request.get(f"{origin}/api/sessions/active").json()["session"]
+        self.assertEqual(session["recipe"]["ingredients"], expected)
+        checklist = self.page.request.get(f"{origin}/api/sessions/{session['id']}/checklist").json()["checklist"]
+        self.assertEqual([item["label"] for item in checklist if item["kind"] == "ingredient"], expected)
+        self.assertEqual(self.page_errors, [])
+
+    def test_recent_monitoring_health_ages_to_stale_without_refresh(self):
+        self.start_synthetic_camera_session(sample_interval=15)
+        self.analyze_with_synthetic_result(self.synthetic_observation())
+        origin = self.page.evaluate("location.origin")
+        session = self.page.request.get(f"{origin}/api/sessions/active").json()["session"]
+        health = session["monitoring_health"]
+        self.assertEqual(health["state"], "recent")
+        self.assertIsNotNone(health["last_success_at"])
+
+        self.page.evaluate("at => { window.__realDateNow = Date.now; window.__healthClock = (at + 31) * 1000; Date.now = () => window.__healthClock; }", health["last_success_at"])
+        try:
+            self.page.evaluate("session => document.dispatchEvent(new CustomEvent('sous:session', { detail: { session } }))", session)
+            self.expect(self.page.locator("#monitoring-health")).to_have_attribute("data-state", "recent", timeout=5000)
+            self.page.evaluate("() => { window.__healthClock += 15 * 1000; }")
+            self.page.evaluate("session => document.dispatchEvent(new CustomEvent('sous:session', { detail: { session } }))", session)
+            self.page.wait_for_function("document.querySelector('#monitoring-health').dataset.state === 'stale'", timeout=4000)
+        finally:
+            self.page.evaluate("() => { Date.now = window.__realDateNow; delete window.__realDateNow; delete window.__healthClock; }")
+        self.assertEqual(self.page_errors, [])
+
+    def test_provider_failure_replaces_recent_health_and_preserves_manual_controls(self):
+        from providers import ProviderError
+
+        expect = self.expect
+        self.start_synthetic_camera_session()
+        self.analyze_with_synthetic_result(self.synthetic_observation())
+        expect(self.page.locator("#monitoring-health")).to_have_attribute("data-state", "recent")
+
+        with patch("providers.analyze", side_effect=ProviderError("Synthetic provider outage.")):
+            self.page.locator("#analyze-now").click()
+            self.page.wait_for_function("document.querySelector('#camera-message').textContent.includes('Manual controls still work.')")
+        expect(self.page.locator("#monitoring-health")).to_have_attribute("data-state", "error")
+        self.assertFalse(self.page.locator("#next-button").is_disabled())
+        self.assertFalse(self.page.locator("#end-session").is_disabled())
+        origin = self.page.evaluate("location.origin")
+        self.assertEqual(self.page.request.get(f"{origin}/api/sessions/active").json()["session"]["status"], "active")
+        self.assertEqual(self.page_errors, [])
+
+    def test_network_observation_failure_replaces_recent_health_and_preserves_manual_controls(self):
+        expect = self.expect
+        self.start_synthetic_camera_session()
+        self.analyze_with_synthetic_result(self.synthetic_observation())
+        expect(self.page.locator("#monitoring-health")).to_have_attribute("data-state", "recent")
+        self.context.route("**/api/sessions/*/observations", lambda route: route.abort())
+
+        self.page.locator("#analyze-now").click()
+        self.page.wait_for_function("document.querySelector('#camera-message').textContent.includes('You can retry or continue manually.')")
+        expect(self.page.locator("#monitoring-health")).to_have_attribute("data-state", "error")
+        self.assertFalse(self.page.locator("#next-button").is_disabled())
+        self.assertFalse(self.page.locator("#end-session").is_disabled())
+        self.assertEqual(self.page_errors, [])
 
     def test_real_account_setup_switching_private_data_and_media_cleanup(self):
         self.create_first_admin()

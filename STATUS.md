@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: V2 delivered; local owner password recovery verified and the authorized sign-in reset completed.
-- Active: updated Docker app runs at http://127.0.0.1:5050 with its existing named volume retained. Sign-in is available after recovery. V1 data/original vault remain unclaimed; each account supplies its own AWS connection. Disposable5051 verification stack is stopped with its volume retained.
-- Blockers: none for local delivery. Real V2 AI/audio quality and physical-device behavior remain for the user's live trial; automated checks used synthetic inputs.
-- Next checkpoint: user signs in with the private recovery file, changes their password in Settings and deletes the temporary file. No credentials in chat/logs/Git and no changes to AWS vault ciphertext. No agent push. Local brag-output/ is preserved and ignored; TestFlight/native work remains deferred.
+- Phase: V2 merge-readiness fixes verified: vault revocation ordering, ingredient quantity display and monitoring freshness/error reporting.
+- Active: feature/v2 includes the backend fix8956921 and verified UI/documentation milestone. Isolated WebKit is installed under /tmp/sous-webkit. Final Linux image and dedicated5051 restart checks passed; test stack is stopped with its volume retained. The normal app/data were not restarted or modified during fix verification. V1 data/original vault remain unclaimed; each account supplies its own AWS connection.
+- Blockers: none from this review. Host/Linux backend discovery each passed185reported tests with16optional skips; isolated WebKit passed30reported cases with1optional live-model skip;3Docker restart checks and3synthetic socket tests passed. Real V2 AI/audio quality and physical-device behavior remain for the user's live trial.
+- Next checkpoint: user reviews and merges feature/v2. Fixes are committed locally; no merge/push/deployment was requested. Preserve the user's unrelated .gitignore edit and normal app data. TestFlight/native work remains deferred.
 
 ## Milestones
+
+- 2026-11-26: Installed isolated WebKit2370 under /tmp/sous-webkit. Opus implemented vault create/unlock serialization after4reproduced stale-request failures; independent backend review found no blocker. Luna fixed saved ingredient displays and monitoring age/error handling after browser RED runs, including final review follow-ups for network failures and saved interval changes. Codex inspected cancellation/account guards and observed final host185tests56.922s/Linux185tests45.742s (16optional skips each), full WebKit30cases113.221s (1optional live skip),3Docker persistence cases9.590s and3actual synthetic socket cases2.590s pass. JavaScript syntax/whitespace clean. Dedicated Docker stack stopped with volume retained; no normal-app restart, real credentials, paid AWS calls or physical devices.
 
 - 2026-10-20: Added local-only reset-password CLI with exclusive0600 password-file output, target-only reset/session revocation and unchanged vault ciphertext. Opus implemented; Luna review found no actionable issue. Host recovery/account tests passed23cases13.444s; Linux recovery tests passed5cases2.769s. Root stopped normal app, reset only the explicitly requested account, copied the generated password to a private local file without reading/printing it, removed the ephemeral recovery container and restarted normal Compose with the volume retained. Public auth health passed; user changes password through Settings next.
 

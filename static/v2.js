@@ -57,7 +57,7 @@
   }
   function ingredientRow(value = "", details = {}) {
     const row = document.createElement("div"); row.className = "ingredient-row";
-    const name = document.createElement("input"); name.className = "ingredient-name"; name.value = details.name || value || ""; name.maxLength = 240; name.placeholder = "Ingredient"; name.setAttribute("aria-label", "Ingredient");
+    const name = document.createElement("input"); name.className = "ingredient-name"; name.value = details.quantity == null ? (value || details.name || "") : (details.name || value || ""); name.maxLength = 240; name.placeholder = "Ingredient"; name.setAttribute("aria-label", "Ingredient");
     const quantity = document.createElement("input"); quantity.className = "ingredient-quantity"; quantity.type = "number"; quantity.step = "any"; quantity.min = "0"; quantity.value = details.quantity ?? ""; quantity.placeholder = "Amount"; quantity.setAttribute("aria-label", "Numeric amount (optional)");
     const unit = document.createElement("input"); unit.className = "ingredient-unit"; unit.maxLength = 40; unit.value = details.unit || ""; unit.placeholder = "Unit"; unit.setAttribute("aria-label", "Unit (optional)");
     const remove = button("Remove", "remove-row", "button button-ghost button-small");
@@ -84,11 +84,15 @@
     $("#recipe-editor").scrollIntoView({ block: "start", behavior: "smooth" }); $("#edit-recipe-name").focus({ preventScroll: true });
   }
   function readEditor() {
-    const ingredients = [...document.querySelectorAll(".ingredient-row")].map((row) => row.querySelector(".ingredient-name").value.trim()).filter(Boolean);
-    const ingredient_details = [...document.querySelectorAll(".ingredient-row")].filter((row) => row.querySelector(".ingredient-name").value.trim()).map((row) => {
+    const rows = [...document.querySelectorAll(".ingredient-row")].map((row) => {
+      const name = row.querySelector(".ingredient-name").value.trim();
       const quantityText = row.querySelector(".ingredient-quantity").value;
-      return { name: row.querySelector(".ingredient-name").value.trim(), quantity: quantityText === "" ? null : Number(quantityText), unit: row.querySelector(".ingredient-unit").value.trim() };
+      const quantity = quantityText === "" ? null : Number(quantityText);
+      const unit = row.querySelector(".ingredient-unit").value.trim();
+      return { name, quantity, unit, display: quantity === null ? name : [quantity, unit, name].filter(Boolean).join(" ") };
     });
+    const ingredients = rows.filter((row) => row.name).map((row) => row.display);
+    const ingredient_details = rows.filter((row) => row.name).map(({ name, quantity, unit }) => ({ name, quantity, unit }));
     const steps = [...document.querySelectorAll(".step-editor-row")].map((row) => ({ title: row.querySelector(".step-name").value.trim(), instruction: row.querySelector(".step-instruction-edit").value.trim(), visual_cue: row.querySelector(".step-cue").value.trim() }));
     return { id: $("#edit-recipe-id").value || undefined, name: $("#edit-recipe-name").value.trim(), description: $("#edit-recipe-description").value.trim(), ingredients, ingredient_details, servings: Number($("#edit-servings").value), equipment: splitList($("#edit-equipment").value), steps };
   }
@@ -285,15 +289,19 @@
   }
   function renderHealth(session) {
     const node = $("#monitoring-health"); const health = session.monitoring_health || {};
-    let key = health.state;
+    let key;
     if (document.querySelector("#observation-panel[aria-busy='true']")) key = "pending";
     else if (!session.monitoring) key = "paused";
     else if (!document.querySelector("#camera-indicator.on")) key = "camera_off";
-    else if (health.state) key = health.state;
-    else if (health.last_success_at || session.latest_observation?.created_at) {
-      const at = health.last_success_at || session.latest_observation.created_at; const staleAfter = (window.sousSampleInterval || 10) * 3;
-      key = Date.now() / 1000 - at > staleAfter ? "stale" : "recent";
-    } else key = "unknown";
+    else if (health.state === "error") key = "error";
+    else {
+      const at = health.last_success_at || session.latest_observation?.created_at;
+      const staleAfter = Math.max(30, 3 * (window.sousSampleInterval || 10));
+      if (at && Date.now() / 1000 - at > staleAfter) key = "stale";
+      else if (health.state === "obscured") key = "obscured";
+      else if (health.state === "stale") key = "stale";
+      else key = at ? "recent" : "unknown";
+    }
     const labels = { paused: "Guidance is paused.", camera_off: "Camera is off; no current view is available.", pending: "Checking a camera snapshot…", recent: "Recent camera check.", stale: "The last camera check is getting old.", error: "The last camera check failed. Manual controls are ready.", obscured: "The camera view may be blocked.", unknown: "No recent camera check." };
     const at = health.last_success_at || session.latest_observation?.created_at;
     node.textContent = `${labels[key] || labels.unknown}${at ? ` Last successful look: ${new Date(at * 1000).toLocaleTimeString()}.` : ""} Camera snapshots are intermittent; they cannot confirm food safety or detect every emergency.`;
@@ -342,7 +350,7 @@
     $("#prep-checklist").addEventListener("change", saveChecklist);
     $("#scale-recipe").addEventListener("click", () => { const servings = Number($("#edit-servings").value); const id = $("#edit-recipe-id").value; if (!id || !Number.isInteger(servings) || servings < 1 || servings > 24) return; scaleDraft(id, servings); });
     document.addEventListener("sous:ready", (event) => { state.active = true; state.user = event.detail.user; window.sousSampleInterval = event.detail.sampleInterval || 10; updateGenerationAccess(event.detail.settings); loadProfile(); loadUsers(); });
-    document.addEventListener("sous:account-settings", (event) => updateGenerationAccess(event.detail.settings));
+    document.addEventListener("sous:account-settings", (event) => { window.sousSampleInterval = event.detail.settings?.sample_interval || 10; updateGenerationAccess(event.detail.settings); });
     document.addEventListener("sous:view", (event) => { if (event.detail.view === "recipes") loadRecipes(); if (event.detail.view === "history") loadHistory(); if (event.detail.view === "settings") loadProfile(); });
     document.addEventListener("sous:session", (event) => {
       const session = event.detail.session;

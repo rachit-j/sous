@@ -1,6 +1,6 @@
 # Sous Flask MVP
 
-Current work is [V2 discovery](#v2-discovery) and its delivery checklist: a private multi-user web app with individual AWS connections. Earlier sections record the implemented V1 iterations. Native iOS and TestFlight are deferred.
+Current work is the verified [V2 merge-readiness fixes](#v2-merge-readiness-fixes) for the delivered private multi-user web app with individual AWS connections. Earlier sections record V1 iterations and V2 delivery. Native iOS and TestFlight are deferred.
 
 ## Objective
 
@@ -94,6 +94,12 @@ Approved additions: personal cooking notes/history, pantry-aware suggestions, se
 - [x] V2.3: named timers, history/notes, preparation and advisory alert/monitor-health contracts.
 - [x] V2.4: responsive account/library/generation/cooking UI and isolated WebKit checks.
 - [x] V2.5: independent isolation/security review, Linux/Compose verification and delivery docs.
+
+## V2 merge-readiness fixes
+
+Resolve the three review findings before merge: serialize vault create/unlock authorization against logout/password reset; preserve edited ingredient quantities in cooking display strings; and refresh monitoring error/freshness status after failed or aging observations. Opus owns bounded backend tests/fix; Luna owns bounded UI tests/fixes, one implementation writer at a time. Codex runs failing regressions before fixes, verifies the full backend/isolated WebKit suites, records evidence and commits verified milestones. Install only the isolated WebKit runtime under /tmp/sous-webkit. Preserve the user's .gitignore change and all private instance data. No merge, push or deployment is requested.
+
+Completed and verified on2026-11-26. Final evidence is in [validation](docs/validation.md) and [status](STATUS.md), including network-failure and changed-interval follow-ups, independent reviews, Linux/Docker checks and the full isolated WebKit suite.
 
 ## References
 

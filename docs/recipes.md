@@ -1,5 +1,7 @@
 # Structured recipes
 
+The web editor saves numeric ingredient amounts and units in both structured data and the display text used by cooking instructions, preparation checklists and voice context. Serving adjustments remain reviewable drafts; saving retains the adjusted amounts and leaves unknown free-text amounts for the cook to review.
+
 Sous tracks whichever structured recipe is selected. Scrambled eggs is the first bundled example; there are no eggs-specific prompts or fixed six-step assumptions in the cooking engine.
 
 ## Add a recipe

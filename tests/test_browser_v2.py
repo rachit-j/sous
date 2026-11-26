@@ -29,7 +29,7 @@ class SousV2BrowserTests(unittest.TestCase):
         self.playwright = self.sync_playwright().start(); self.addCleanup(self.playwright.stop)
         self.browser = self.playwright.webkit.launch(); self.addCleanup(self.browser.close)
         self.context = self.browser.new_context(viewport={"width": 390, "height": 844}); self.addCleanup(self.context.close)
-        self.logged_in = False; self.account_created = False; self.saved = False; self.page = self.context.new_page()
+        self.logged_in = False; self.account_created = False; self.saved = False; self.saved_recipe_payload = None; self.page = self.context.new_page()
         self.cooking_catalog = [{
             "id": "scrambled-eggs", "name": "Scrambled Eggs", "description": "A synthetic test recipe.",
             "ingredients": ["Eggs"], "steps": [{"title": "Cook", "instruction": "Cook gently.", "visual_cue": "The eggs are set."}],
@@ -177,6 +177,7 @@ class SousV2BrowserTests(unittest.TestCase):
         elif route.request.method == "POST":
             payload = route.request.post_data_json
             self.assertEqual(payload["scope"], "personal")
+            self.saved_recipe_payload = payload["recipe"]
             self.saved = True
             saved_recipe = {"id": "personal-tomato-rice", **payload["recipe"]}
             self.cooking_catalog.append(saved_recipe)
@@ -236,6 +237,8 @@ class SousV2BrowserTests(unittest.TestCase):
         with self.page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/api/recipes")):
             self.page.locator("#recipe-form button[type=submit]").click()
         self.assertTrue(self.saved)
+        self.assertEqual(self.saved_recipe_payload["ingredients"], ["1 cup Rice", "Tomatoes"])
+        self.assertEqual(self.saved_recipe_payload["ingredient_details"][0], {"name": "Rice", "quantity": 1, "unit": "cup"})
         expect(self.page.locator("#recipe-library")).to_contain_text("Tomato rice")
         recipe_card = self.page.locator(".recipe-entry").filter(has_text="Tomato rice")
         recipe_card.get_by_role("button", name="Cook this").click()

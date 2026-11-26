@@ -529,6 +529,7 @@
       const settings = await api("/api/settings/preferences", { method: "PUT", body: JSON.stringify({ sample_interval: interval }) });
       state.settings.sample_interval = settings.sample_interval;
       state.config.sample_interval = settings.sample_interval;
+      document.dispatchEvent(new CustomEvent("sous:account-settings", { detail: { settings: state.settings } }));
       updateCaptureLoop();
       setFormError("#interval-error", "Saved. New checks use this interval.");
       $("#interval-error").classList.remove("settings-error");
@@ -1123,6 +1124,7 @@
     const wasPending = state.observationInFlight;
     state.observationController?.abort();
     state.observationController = null;
+    state.observationInFlight = false;
     setAnalysisPending(false);
     if (wasPending) {
       setCameraMessage("");
@@ -1153,8 +1155,13 @@
     const context = canvas.getContext("2d", { alpha: false });
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const image = canvas.toDataURL("image/jpeg", 0.75);
+    const sessionId = state.session.id;
+    const accountEpoch = state.accountEpoch;
     const revision = state.session.revision;
     const generation = state.uiGeneration;
+    const isSameObservationOwner = () => accountEpoch === state.accountEpoch
+      && String(state.session?.id) === String(sessionId);
+    const isCurrentObservation = () => generation === state.uiGeneration && isSameObservationOwner();
     const controller = new AbortController();
     state.observationController = controller;
     state.observationInFlight = true;
@@ -1163,31 +1170,38 @@
     setAnalysisPending(true);
     setCameraMessage("Analyzing… This first look can take a little longer while the local model wakes up.");
     try {
-      const session = await post(`/api/sessions/${state.session.id}/observations`, { image, revision }, { signal: controller.signal });
-      if (generation === state.uiGeneration && session.revision >= state.session.revision) {
+      const session = await post(`/api/sessions/${sessionId}/observations`, { image, revision }, { signal: controller.signal });
+      if (isCurrentObservation() && session.revision >= state.session.revision) {
         acceptSession(session, { announce: true, source: "observation" });
         $("#camera-caption").textContent = "Camera preview";
         setCameraMessage("Look complete.");
       }
     } catch (error) {
       if (error.name === "AbortError") return;
+      if (!isCurrentObservation()) return;
       if (error.status === 409) {
         await refreshSession();
-      } else if (error.status === 502 || error.status === 503) {
-        $("#camera-caption").textContent = "Camera preview";
-        setCameraMessage(`${error.message} Manual controls still work.`, true);
-        if (manual) showToast(error.message, true);
       } else {
+        state.session = { ...state.session, monitoring_health: { ...(state.session.monitoring_health || {}), state: "error" } };
+        document.dispatchEvent(new CustomEvent("sous:session", { detail: { session: state.session } }));
         $("#camera-caption").textContent = "Camera preview";
-        setCameraMessage(`${error.message} You can retry or continue manually.`, true);
+        if (error.status === 502 || error.status === 503) {
+          setCameraMessage(`${error.message} Manual controls still work.`, true);
+          if (manual) showToast(error.message, true);
+        } else setCameraMessage(`${error.message} You can retry or continue manually.`, true);
       }
     } finally {
-      state.observationInFlight = false;
-      if (state.observationController === controller) state.observationController = null;
-      // A cancelled request has already cleared the indicator; never clear one that belongs to a newer request.
-      if (!state.observationController) setAnalysisPending(false);
-      if (state.camera && $("#camera-caption").textContent === "Analyzing") $("#camera-caption").textContent = "Camera preview";
-      updateCaptureLoop();
+      const isLatestRequest = state.observationController === controller;
+      if (isLatestRequest) {
+        state.observationInFlight = false;
+        state.observationController = null;
+        setAnalysisPending(false);
+        if (isSameObservationOwner()) {
+          if (state.camera && $("#camera-caption").textContent === "Analyzing") $("#camera-caption").textContent = "Camera preview";
+          document.dispatchEvent(new CustomEvent("sous:session", { detail: { session: state.session } }));
+        }
+        updateCaptureLoop();
+      }
     }
   }
 

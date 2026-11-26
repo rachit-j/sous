@@ -11,6 +11,7 @@ from contextlib import closing
 from unittest import mock
 
 import requests
+from flask import jsonify, request
 from jinja2 import DictLoader
 
 import providers
@@ -110,11 +111,55 @@ class SecurityTests(SousTestCase):
             self.assertEqual(self.client.get("/api/config", base_url=host).status_code, 200, host)
 
     def test_healthcheck_does_not_access_database_or_providers(self):
-        with mock.patch("app.get_db", side_effect=AssertionError("healthcheck accessed database")):
-            response = self.app.test_client().get("/healthz")
+        client = self.app.test_client()
+        with mock.patch("app.get_db", side_effect=AssertionError("healthcheck accessed database")), \
+                mock.patch("app.connect", side_effect=AssertionError("healthcheck opened SQLite")), \
+                mock.patch("app.provider_catalog", side_effect=AssertionError("healthcheck read providers")), \
+                mock.patch.object(providers, "analyze", side_effect=AssertionError("healthcheck called a provider")), \
+                mock.patch.object(providers, "list_bedrock_models",
+                                  side_effect=AssertionError("healthcheck called Bedrock")):
+            response = client.get("/healthz")
+            head = client.head("/healthz")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json(), {"status": "ok"})
         self.assertNotIn("Set-Cookie", response.headers)
+        self.assertEqual(head.status_code, 200)
+        self.assertEqual(head.get_data(), b"")
+        self.assertNotIn("Set-Cookie", head.headers)
+
+    def test_healthcheck_answers_before_later_request_hooks(self):
+        # Models a login hook appended after create_app's own hooks (as an accounts build does):
+        # liveness must not reach it, while every other private endpoint still does.
+        app = self.make_app()
+        reached = []
+        public = {"index", "static", "auth_state", "auth_setup", "auth_login", "auth_logout"}
+
+        def later_auth():
+            reached.append(request.endpoint)
+            if request.endpoint is None or request.endpoint in public:
+                return None  # routing errors and public shell/auth actions
+            return jsonify(error="later auth hook"), 401
+
+        app.before_request(later_auth)
+        anonymous = app.test_client()
+        for method in ("get", "head"):
+            response = getattr(anonymous, method)("/healthz")
+            self.assertEqual(response.status_code, 200, method)
+            self.assertNotIn("Set-Cookie", response.headers)
+        self.assertNotIn("health", reached)
+        # Untrusted Host is still rejected by routing, not answered by the liveness hook.
+        self.assertEqual(anonymous.get("/healthz", base_url="http://rebind.example").status_code, 400)
+        self.assertNotIn("health", reached)
+        # Cooking and settings APIs do not share the bypass, with or without a valid CSRF token.
+        client, token = self.browser(app)
+        for path in ("/api/config", "/api/sessions/active", "/api/settings"):
+            self.assertEqual(client.get(path).status_code, 401, path)
+        response = client.post("/api/sessions", json=START, headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(client.post("/healthz", headers={"X-CSRF-Token": token}).status_code, 405)
+        for endpoint in ("config", "active_session", "get_settings", "create_session"):
+            self.assertIn(endpoint, reached)
+        self.assertNotIn("health", reached)
 
     def test_deployment_trusted_hosts_are_explicit(self):
         with mock.patch.dict(os.environ, {"SOUS_TRUSTED_HOSTS": " localhost, sous.example.com "}):
@@ -142,14 +187,30 @@ class SecurityTests(SousTestCase):
         headers = {**forwarded, "Origin": "https://sous.example.com", "X-CSRF-Token": token}
         # Secure cookies are sent over the browser's HTTPS origin; the forwarded header
         # models Nginx's HTTPS-to-HTTP hop to Flask.
+        proxied = {"base_url": "https://sous.example.com", "environ_overrides": {"wsgi.url_scheme": "http"}}
+        if "auth_state" in app.view_functions:
+            # Accounts build: a valid proxied CSRF token is not a login.
+            response = client.post("/api/sessions", json=START, headers=headers, **proxied)
+            self.assertEqual(response.status_code, 401, response.get_json())
+            synthetic_cook = {"username": "cook", "password": "synthetic-cook-password-01"}
+            setup = client.get("/api/auth", headers=forwarded, **proxied).get_json()["setup_required"]
+            response = client.post("/api/auth/setup" if setup else "/api/auth/login", json=synthetic_cook,
+                                   headers=headers, **proxied)
+            self.assertEqual(response.status_code, 201 if setup else 200, response.get_json())
+            self.assertIn("Secure", response.headers["Set-Cookie"])
+            rotated = response.get_json()["csrf_token"]
+            self.assertNotEqual(rotated, token)
+            # The pre-login token no longer authorizes writes.
+            response = client.post("/api/sessions", json=START, headers=headers, **proxied)
+            self.assertEqual(response.status_code, 403)
+            headers["X-CSRF-Token"] = rotated
         response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
                                headers={**headers, "Origin": "https://evil.example"})
         self.assertEqual(response.status_code, 403)
         response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
                                headers={**headers, "X-CSRF-Token": "wrong"})
         self.assertEqual(response.status_code, 403)
-        response = client.post("/api/sessions", base_url="https://sous.example.com", json=START,
-                               headers=headers, environ_overrides={"wsgi.url_scheme": "http"})
+        response = client.post("/api/sessions", json=START, headers=headers, **proxied)
         self.assertEqual(response.status_code, 201, response.get_json())
         # X-Forwarded-Host is deliberately not trusted: Host remains the allowlist boundary.
         self.assertEqual(client.get("/healthz", base_url="http://evil.example", headers={

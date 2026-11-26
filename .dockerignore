@@ -11,6 +11,7 @@ agents
 docs
 tests
 *.md
+/sous-setup/
 
 # Secrets and local state
 .env

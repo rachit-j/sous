@@ -2,12 +2,14 @@
 
 ## Current
 
-- Phase: CI/CD prepared on feature/github-actions from main df712e2, publishing through the rachit-agentic/sous fork.
+- Phase: main test/health compatibility corrections for the V2 merge verified locally.
 - Active: CI tests, image smoke checks and main-only GHCR publishing; optional SSH deployment to one Linux amd64 server with host Nginx. Production proxy configuration and health endpoint added without changing local defaults.
 - Blockers: direct writes to rachit-j/sous are unavailable; the user created rachit-agentic/sous, where connector branch creation succeeded. Docker is not installed in this workspace, so image/Compose/server checks have not run here. No image publication or deployment has occurred.
-- Next checkpoint: open the fork PR into rachit-j/sous:feature/github-actions, review CI, configure server/production environment per docs/deployment.md, then merge to main when ready.
+- Next checkpoint: user pushes the local main correction and retries the V2 merge. No agent push, merge or deployment. The user's .gitignore edit remains unstaged.
 
 ## Milestones
+
+- 2026-11-26: Reproduced all3reported V2 security failures, rewrote the proxy test to use real auth when present, preserved database-free routed liveness ahead of later hooks, changed CI smoke to the public shell and JS checks to all scripts, and excluded sous-setup/ from Docker context. Main CI command passed109reported tests14.663s (6skips); the same patch applied cleanly to isolated mergedV2 and passed193tests56.542s (15skips). Read-only review found no issue; JS/whitespace passed. Both images built; additional smoke checks stopped at user request and disposable containers removed. No private-folder access, real provider/media calls or remote writes.
 
 - 2026-11-25: Added deploy/setup-server.sh at user request for Ubuntu/Debian amd64 systemd hosts: signed Docker apt setup when needed, deployment user and public key, persistent settings directory, Nginx Basic Auth, Certbot webroot HTTPS/renewal and GitHub variable/host-key output. Existing settings/password files and unrelated sites are preserved; generated Nginx configuration is validated with recovery. Bash syntax/help and ShellCheck passed; bounded read-only review found no P1/P2 defects. Root server provisioning and real certificate issuance were not executed here.
 

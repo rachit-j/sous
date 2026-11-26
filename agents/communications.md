@@ -1,5 +1,11 @@
 # Agent communication log
 
+## Main tests for the V2 merge — 2026-11-26
+
+Final: Opus returned the four-file patch; Codex inspected and applied it cleanly with3way merge in the isolated actualV2 checkout. Main109tests14.663s/6skips and V2193tests56.542s/15skips passed with synthetic sockets enabled. Read-only Luna review found no defects; JS/whitespace passed. Main/V2 images built, but user requested stopping extra verification; disposable auto-remove containers were stopped (subsequent remove correctly found them absent). Root saves local main correction only. User .gitignore remains unstaged; no push, actual feature merge or deployment.
+
+User explicitly requested switching to main, rewriting failing tests and checking necessary related updates before their merge retry. Root fast-forwarded main to08b7d57 and preserved the user's unstaged .gitignore exclusion. No access to sous-setup/ contents or listing. Isolated tracked-files checkout /tmp/sous-main-v2-verify uses the user's merged origin/feature/v2 at6c87058. Root reproduced all3SecurityTests failures in0.982s: proxy unauthenticated401, trusted-host health401 and database-free health500. Opus is sole writer for app.py, tests/test_app.py, CI and Docker ignore only; main must retain V1 behavior and the patch must also pass against actual V2. Root owns verification/docs/commit; no recursive delegation, live providers/media, push, feature merge or deployment.
+
 Coordinator: Codex. Agents return findings through their task channel; Codex records shared decisions here. One implementation writer at a time.
 
 ## CI/CD branch — 2026-11-25

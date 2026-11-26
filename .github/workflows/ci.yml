@@ -31,9 +31,10 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: JavaScript syntax
         run: |
-          node --check static/app.js
-          node --check static/voice.js
-          node --check static/voice-worklet.js
+          # Every bundled script; an unmatched glob stays literal and fails the check.
+          for file in static/*.js; do
+            node --check "$file" || exit 1
+          done
 
   image:
     needs: tests
@@ -74,7 +75,8 @@ jobs:
             docker logs sous-ci
             exit 1
           fi
-          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:5051/api/config > /dev/null
+          # Public app shell: rendered by the image without signing in or calling providers.
+          curl --fail --silent --show-error --max-time 5 http://127.0.0.1:5051/ > /dev/null
       - name: Remove disposable smoke container
         if: always()
         run: docker rm -fv sous-ci 2>/dev/null || true

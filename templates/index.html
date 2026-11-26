@@ -9,6 +9,7 @@
   <title>Sous — Cooking workspace</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='voice.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='v2.js') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
@@ -17,8 +18,11 @@
     <a class="brand" href="/" aria-label="Sous home"><span class="brand-mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><circle cx="9.5" cy="12" r="5.5"/><path d="M15 12h6.5"/></svg></span><span>Sous</span></a>
     <nav class="app-nav" id="app-nav" aria-label="Main navigation" hidden>
       <button class="nav-button active" id="nav-cooking" type="button" aria-current="page">Cooking</button>
+      <button class="nav-button" id="nav-recipes" type="button">Recipes</button>
+      <button class="nav-button" id="nav-history" type="button">History</button>
       <button class="nav-button" id="nav-settings" type="button">Settings</button>
     </nav>
+    <div class="account-controls" id="account-controls" hidden><span id="account-name"></span><button class="button button-ghost button-small" id="logout-button" type="button">Log out</button></div>
     <div class="connection-state" id="connection-state"><span class="state-dot" aria-hidden="true"></span><span id="connection-label">Connecting</span></div>
   </header>
 
@@ -26,6 +30,21 @@
     <section id="loading-panel" class="loading-panel" aria-live="polite">
       <span class="loading-mark" aria-hidden="true"></span>
       <p>Loading Sous…</p>
+    </section>
+
+    <section id="auth-panel" class="auth-panel" hidden aria-labelledby="auth-title">
+      <header><h1 id="auth-title">Sign in to Sous</h1><p class="lede" id="auth-intro">Your recipes, cooking sessions, and AWS connection are private to your account.</p></header>
+      <form id="login-form" class="panel auth-form" hidden>
+        <div class="field"><label for="login-username">Username</label><input id="login-username" name="username" maxlength="64" autocomplete="username" required></div>
+        <div class="field"><label for="login-password">Password</label><input id="login-password" name="password" type="password" maxlength="1024" autocomplete="current-password" required></div>
+        <p class="settings-error" id="login-error" role="status" hidden></p><button class="button button-primary" type="submit">Sign in</button>
+      </form>
+      <form id="admin-setup-form" class="panel auth-form" hidden>
+        <h2>Create the first administrator</h2><p class="field-help">This private instance has no accounts yet. Use a unique password; it is separate from your AWS vault passphrase.</p>
+        <div class="field"><label for="setup-username">Username</label><input id="setup-username" name="username" maxlength="64" autocomplete="username" required></div>
+        <div class="field"><label for="setup-password">Password</label><input id="setup-password" name="password" type="password" maxlength="1024" autocomplete="new-password" required></div>
+        <p class="settings-error" id="setup-error" role="status" hidden></p><button class="button button-primary" type="submit">Create administrator</button>
+      </form>
     </section>
 
     <section id="setup-panel" class="setup-panel" hidden>
@@ -79,6 +98,18 @@
         <p class="lede">Manage the model Sous uses and how often it checks a still image. Saving credentials does not test AWS access.</p>
       </header>
 
+      <section class="settings-section panel" aria-labelledby="password-heading"><div class="settings-section-head"><div><h2 id="password-heading">Account password</h2><p>Changing your password signs out other sessions and locks your AWS vault.</p></div></div>
+        <form id="password-form" class="settings-form"><div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required></div><div class="field"><label for="new-password">New password</label><input id="new-password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div><p class="settings-error" id="password-error" role="status" hidden></p><button class="button button-secondary" type="submit">Change password</button></form>
+      </section>
+
+      <section class="settings-section panel" id="user-admin-panel" aria-labelledby="user-admin-heading" hidden><div class="settings-section-head"><div><h2 id="user-admin-heading">Manage accounts</h2><p>Create accounts for people you trust to use this private instance.</p></div></div>
+        <form id="user-create-form" class="settings-form"><div class="field"><label for="new-user-name">Username</label><input id="new-user-name" maxlength="64" autocomplete="off" required></div><div class="field"><label for="new-user-password">Temporary password</label><input id="new-user-password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div><p class="settings-error" id="user-create-error" role="status" hidden></p><button class="button button-secondary" type="submit">Create account</button></form><ul id="user-list" class="user-list"></ul>
+      </section>
+
+      <section class="settings-section panel" aria-labelledby="profile-heading"><div class="settings-section-head"><div><h2 id="profile-heading">Cooking preferences</h2><p>Used to prefill recipe creation. These are suggestions, not allergy checks.</p></div></div>
+        <form id="profile-form" class="settings-form"><div class="field"><label for="profile-pantry">Pantry ingredients</label><textarea id="profile-pantry" rows="3" placeholder="Rice, canned tomatoes, lentils"></textarea></div><div class="field"><label for="profile-equipment">Equipment</label><textarea id="profile-equipment" rows="2" placeholder="Oven, saucepan, blender"></textarea></div><div class="field"><label for="profile-servings">Usual servings</label><input id="profile-servings" type="number" min="1" max="24" step="1" value="2"></div><div class="field"><label for="profile-time">Usual time budget (minutes)</label><input id="profile-time" type="number" min="1" max="1440" step="1" value="30"></div><p class="settings-error" id="profile-error" role="status" hidden></p><button class="button button-secondary" type="submit">Save preferences</button></form>
+      </section>
+
       <section class="settings-section panel" aria-labelledby="vault-heading">
         <div class="settings-section-head"><div><h2 id="vault-heading">Encrypted settings vault</h2><p id="vault-status" class="settings-status" role="status">Loading vault status…</p></div></div>
         <form id="vault-init-form" class="settings-form vault-form" hidden>
@@ -89,7 +120,7 @@
           <button class="button button-primary" type="submit">Create vault</button>
         </form>
         <form id="vault-unlock-form" class="settings-form vault-form" hidden>
-          <p class="field-help">Unlock saved Bedrock settings for this server run.</p>
+          <p class="field-help">Unlock your saved AWS settings for this server run.</p>
           <div class="field"><label for="vault-unlock-passphrase">Passphrase</label><input id="vault-unlock-passphrase" type="password" maxlength="1024" autocomplete="current-password" required></div>
           <p class="settings-error" id="vault-unlock-error" role="status" hidden></p>
           <button class="button button-primary" type="submit">Unlock settings</button>
@@ -148,6 +179,17 @@
         </form>
       </section>
     </section>
+
+    <section id="recipes-panel" class="v2-panel" hidden aria-labelledby="recipes-title"><header class="page-header"><div><h1 id="recipes-title">Recipes</h1><p class="lede">Choose a shared recipe, keep your own, or make a draft with AI.</p></div><button class="button button-primary" id="new-recipe-button" type="button">Create recipe</button></header>
+      <div class="library-tools"><label class="field"><span>Find a recipe</span><input id="recipe-search" type="search" placeholder="Name or ingredient"></label><button class="button button-secondary" id="open-generator" type="button">Make a recipe with AI</button></div>
+      <p id="library-status" class="page-status" role="status"></p><div id="recipe-library" class="recipe-library"></div>
+      <section id="recipe-editor" class="panel editor-panel" hidden aria-labelledby="recipe-editor-title"><div class="panel-head"><div><h2 id="recipe-editor-title">Create recipe</h2><p>Review every instruction before saving.</p></div><button class="button button-ghost button-small" id="close-recipe-editor" type="button">Close</button></div>
+        <form id="recipe-form" class="settings-form recipe-form"><input id="edit-recipe-id" type="hidden"><div class="recipe-meta-row"><div class="field"><label for="edit-recipe-name">Name</label><input id="edit-recipe-name" maxlength="120" required></div><div class="field"><label for="edit-recipe-description">Description</label><textarea id="edit-recipe-description" rows="2" maxlength="1000" required></textarea></div></div><div class="form-row recipe-details-row"><div class="field"><label for="edit-servings">Servings</label><input id="edit-servings" type="number" min="1" max="24" step="1" value="2"></div><div class="field"><label for="edit-equipment">Equipment</label><input id="edit-equipment" maxlength="1000" placeholder="Saucepan, oven"></div></div><div class="field recipe-editor-section"><label>Ingredients</label><p class="field-help">Add numeric amounts to adjust servings accurately; leave unknown amounts blank.</p><div id="ingredient-editor" class="ingredient-editor"></div><button class="button button-ghost button-small" id="add-ingredient" type="button">Add ingredient</button></div><div class="field recipe-editor-section"><label>Steps</label><div id="step-editor" class="step-editor"></div><button class="button button-ghost button-small" id="add-recipe-step" type="button">Add step</button></div><label class="check-choice" id="global-recipe-choice" hidden><input id="edit-global" type="checkbox"><span>Share as a global recipe (administrator only)</span></label><p class="settings-error" id="recipe-form-error" role="status" hidden></p><div class="settings-form-actions"><button class="button button-primary" type="submit">Save recipe</button><button class="button button-secondary" id="scale-recipe" type="button" hidden>Make a serving-size draft</button></div></form>
+      </section>
+      <section id="generator-panel" class="panel editor-panel" hidden aria-labelledby="generator-title"><div class="panel-head"><div><h2 id="generator-title">Make a recipe with AI</h2><p>Your text is sent using your own unlocked AWS connection and model.</p></div><button class="button button-ghost button-small" id="close-generator" type="button">Close</button></div><p id="generator-connection" class="settings-callout" role="status">Checking your AWS connection…</p><form id="generator-form" class="settings-form"><div class="field"><label for="generate-dish">What would you like to cook?</label><input id="generate-dish" maxlength="200" required></div><div class="field"><label for="generate-ingredients">Ingredients or constraints</label><textarea id="generate-ingredients" rows="3" placeholder="Use what I have, avoid extra shopping"></textarea></div><div class="field"><label for="generate-pantry">Pantry ingredients</label><textarea id="generate-pantry" rows="3"></textarea><p class="field-help">Pantry details are optional. They do not verify allergy safety.</p></div><div class="field"><label for="generate-equipment">Available equipment</label><textarea id="generate-equipment" rows="2"></textarea></div><div class="form-row"><div class="field"><label for="generate-servings">Servings</label><input id="generate-servings" type="number" min="1" max="24" value="2" required></div><div class="field"><label for="generate-time">Time budget (minutes)</label><input id="generate-time" type="number" min="1" max="1440" value="30" required></div></div><p class="settings-error" id="generator-error" role="status" hidden></p><button class="button button-primary" type="submit">Generate editable draft</button></form><div id="draft-warning" class="settings-callout" hidden role="status"></div></section>
+    </section>
+
+    <section id="history-panel" class="v2-panel" hidden aria-labelledby="history-title"><header class="page-header"><div><h1 id="history-title">Cooking history</h1><p class="lede">Your sessions and private notes. Only you can see them.</p></div></header><p id="history-status" class="page-status" role="status"></p><div class="history-layout"><ol id="history-list" class="history-list"></ol><section id="history-detail" class="panel history-detail" hidden><h2 id="history-recipe-name"></h2><p id="history-date"></p><ol id="history-events"></ol><form id="history-note-form" class="settings-form"><label for="history-note">Private note</label><textarea id="history-note" maxlength="4000" rows="5"></textarea><button class="button button-secondary" type="submit">Save note</button><p id="history-note-status" role="status"></p></form></section></div></section>
 
     <section id="session-panel" class="session-panel" hidden aria-label="Cooking session">
       <header class="session-bar">
@@ -218,7 +260,12 @@
               <span class="timer-readout" id="timer-readout" aria-live="off">—:—</span>
             </div>
             <form id="timer-form" class="timer-form"><label class="visually-hidden" for="timer-minutes">Timer duration in minutes</label><input id="timer-minutes" type="number" min="0.02" max="1440" step="any" placeholder="Minutes" inputmode="decimal"><button class="button button-secondary button-small" type="submit">Start</button><button class="button button-ghost button-small" id="cancel-timer" type="button" disabled>Cancel</button></form>
+            <form id="named-timer-form" class="named-timer-form"><div class="form-row"><label class="field"><span>Timer name</span><input id="named-timer-name" maxlength="80" placeholder="Pasta"></label><label class="field"><span>Minutes</span><input id="named-timer-minutes" type="number" min="0.02" max="1440" step="any" inputmode="decimal" required></label></div><button class="button button-secondary button-small" type="submit">Add named timer</button></form>
+            <p id="named-timer-notice" class="named-timer-notice" role="status" hidden></p>
+            <ul id="named-timer-list" class="named-timer-list"></ul>
           </section>
+
+          <section class="panel prep-panel" aria-labelledby="prep-heading"><div class="panel-head"><div><h2 id="prep-heading">Before you start</h2><p>Check off ingredients and equipment as you gather them.</p></div></div><ul id="prep-checklist" class="prep-checklist"></ul><p id="prep-status" class="field-help" role="status"></p></section>
 
           <section class="panel camera-panel" aria-labelledby="camera-heading">
             <div class="panel-head"><div><h2 id="camera-heading">Kitchen view</h2><p class="camera-caption"><span id="camera-caption">Camera is off</span><span class="thinking-dots" id="analysis-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
@@ -233,8 +280,10 @@
 
           <section class="panel observation-panel" id="observation-panel" aria-labelledby="observation-heading">
             <div class="panel-head"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption">No camera observations yet</p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
+            <p class="monitoring-health" id="monitoring-health" data-state="unknown" role="status">No recent camera check.</p>
             <div id="observation-content" class="observation-content"><p>Camera observations will appear here. They’re a helpful cue, never a food-safety check.</p></div>
             <p class="observation-footnote">Confidence is a rough model signal, not a calibrated probability.</p>
+            <div id="advisory-alerts" class="advisory-alerts" aria-live="polite"></div>
           </section>
 
           <details class="panel recipe-panel" id="recipe-panel" open>

@@ -87,6 +87,10 @@ class SousBrowserTests(unittest.TestCase):
         self.page.on("pageerror", lambda error: self.page_errors.append(str(error)))
         self.page.on("console", lambda message: self.console_errors.append(message.text) if message.type == "error" else None)
         self.page.goto(self.base_url, wait_until="networkidle")
+        if self.page.locator("#auth-panel").is_visible():
+            self.page.locator("#setup-username").fill("browser-admin")
+            self.page.locator("#setup-password").fill("browser-admin-test-password")
+            self.page.locator("#admin-setup-form button[type=submit]").click()
         self.page.locator("#setup-panel").wait_for(state="visible")
 
     def _stop_server(self):

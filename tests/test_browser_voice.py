@@ -62,6 +62,10 @@ class VoiceBrowserTests(unittest.TestCase):
         self.page.on("pageerror", self._record_page_error)
         self.page_errors = []
         self.page.goto(f"http://127.0.0.1:{self.server.server_port}", wait_until="networkidle")
+        if self.page.locator("#auth-panel").is_visible():
+            self.page.locator("#setup-username").fill("voice-admin")
+            self.page.locator("#setup-password").fill("voice-admin-test-password")
+            self.page.locator("#admin-setup-form button[type=submit]").click()
         self.page.locator("#setup-panel").wait_for(state="visible")
 
     def _record_page_error(self, error):

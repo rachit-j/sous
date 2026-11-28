@@ -135,10 +135,11 @@ The WebKit suite ([tests/test_browser.py](../tests/test_browser.py)) captures se
 
 ## Kitchen view
 
-V3 F1 ([V3](v3.md#f1-kitchen-view)). During a cook the session opens in **Kitchen view** by default; the session bar toggles it (saved in browser `localStorage` as a layout preference only). The existing panels are regrouped with CSS grid and `display: contents`, so element IDs, DOM order and keyboard order are unchanged.
+V3 F1 ([V3](v3.md#f1-kitchen-view)). During a cook the session opens in **Kitchen view** by default; the session bar toggles it (saved in browser `localStorage` as a layout preference only). `static/kitchen.js` moves the existing panels into two independently stacked columns, keeping their IDs and listeners, and puts them back for the standard view. Each column stacks on its own, so a tall step card never leaves gaps under the camera.
 
-- Landscape (≥960px): the camera takes the left ~62% at up to 66vh, with the current step, timer and voice conversation in the right column. Other tools (checklist, observations, recipe, notes) flow below.
-- Narrow screens: one column, camera first, then step, voice and timer.
-- The camera shows a distance-readable overlay (`aria-hidden`; the same information stays in the accessible panels): step number and title, the running timer, monitoring freshness, and a temporary caption of what Sous says aloud through browser speech.
-- The newest transcript line is larger. Step, camera, guidance and voice buttons are at least 48–56px tall.
+- Landscape (≥960px): the left column (~63%) holds the camera (up to 62vh), then observations, checklist and recipe. The right column holds the step card, timer, voice conversation and session notes.
+- Narrow screens: one column in the order camera, step, voice, timer, then the rest.
+- Step card: the primary action (Next / Finish) spans the card, with Back and Correct below it, so the buttons never overflow.
+- The camera shows a distance-readable overlay (`aria-hidden`; the full information stays in the accessible panels): step number and title, the running timer, a short monitoring status (for example "Watching" or "Checking…"), and a temporary caption of what Sous says aloud through browser speech.
+- The newest transcript line is larger. Controls are at least 48–52px tall.
 - A screen Wake Lock is requested while the cooking view is visible and released when it is hidden, the cook ends or the user signs out. Full screen is an optional button where the browser supports it.

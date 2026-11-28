@@ -7,6 +7,8 @@
   const $ = (selector) => document.querySelector(selector);
   const STORAGE_KEY = "sous.kitchenView"; // UI layout preference only; never secrets
   const CAPTION_MS = 9000;
+  const SHORT_STATUS = { pending: "Checking…", recent: "Watching", stale: "Last check is old", error: "Check failed",
+    obscured: "View may be blocked", paused: "Guidance paused", camera_off: "", unknown: "" };
   let wakeLock = null;
   let wakeLockPending = false;
   let captionTimer = null;
@@ -15,7 +17,37 @@
     try { return localStorage.getItem(STORAGE_KEY) !== "0"; } catch { return true; }
   }
 
+  // Kitchen layout: two independently stacked columns, so a tall step card never leaves gaps
+  // under the camera. Panels keep their IDs and listeners; standard view restores the original DOM.
+  const LEFT = [".camera-panel", "#observation-panel", ".prep-panel", "#recipe-panel"];
+  const RIGHT = [".cook-column", ".timer-panel", "#voice-panel", ".event-panel"];
+  const homes = new Map();
+
+  function arrange(on) {
+    const panel = $("#session-panel");
+    let layout = panel.querySelector(":scope > .kitchen-layout");
+    if (on && !layout) {
+      layout = document.createElement("div");
+      layout.className = "kitchen-layout";
+      const left = document.createElement("div"); left.className = "kitchen-column kitchen-left";
+      const right = document.createElement("div"); right.className = "kitchen-column kitchen-right";
+      layout.append(left, right);
+      panel.querySelector(":scope > .workspace").before(layout);
+      [[LEFT, left], [RIGHT, right]].forEach(([selectors, column]) => selectors.forEach((selector) => {
+        const node = panel.querySelector(selector);
+        if (!node) return;
+        homes.set(node, { parent: node.parentNode, next: node.nextSibling });
+        column.append(node);
+      }));
+    } else if (!on && layout) {
+      [...homes.entries()].reverse().forEach(([node, home]) => home.parent.insertBefore(node, home.next));
+      homes.clear();
+      layout.remove();
+    }
+  }
+
   function applyMode(on) {
+    arrange(on);
     $("#session-panel").classList.toggle("kitchen-mode", on);
     const toggle = $("#kitchen-view-toggle");
     toggle.setAttribute("aria-pressed", String(on));
@@ -63,10 +95,10 @@
     timer.hidden = timerState === "idle";
     timer.textContent = readout?.textContent || "";
     timer.dataset.state = timerState;
-    const health = $("#monitoring-health");
+    const state = $("#monitoring-health")?.dataset.state || "unknown";
     const status = $("#overlay-status");
-    status.textContent = health?.textContent || "";
-    status.dataset.state = health?.dataset.state || "unknown";
+    status.textContent = SHORT_STATUS[state] || "";  // full sentence stays in the accessible panel
+    status.dataset.state = state;
     status.hidden = !status.textContent;
   }
 

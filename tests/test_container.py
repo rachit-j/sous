@@ -56,6 +56,7 @@ class ContainerTestCase(unittest.TestCase):
     def setUp(self):
         verify_fixture_identity()
         self.http = requests.Session()  # keeps the signed session cookie like a browser
+        self.wait_for_health()  # Gunicorn may still be starting right after `compose up -d`
         self.token = self.load_index()
         self.authenticate_fixture_admin()
         self.addCleanup(self.end_active_session)
@@ -289,6 +290,17 @@ class ContainerPersistenceTests(ContainerTestCase):
         # Mutations still require Bob's own CSRF token, never Alice's token.
         self.assertEqual(bob.post(f"{BASE_URL}/api/sessions/{session_id}/timers/{timer_id}/ack",
                                   headers=headers, json={}, timeout=15).status_code, 404)
+
+    def wait_for_health(self):
+        """Database-free liveness; resets and refusals while the server starts are retried."""
+        for _ in range(40):
+            try:
+                if self.http.get(f"{BASE_URL}/healthz", timeout=2).status_code == 200:
+                    return
+            except requests.RequestException:
+                pass
+            time.sleep(1.5)
+        self.fail("container did not become healthy")
 
     def wait_until_ready(self):
         for _ in range(40):

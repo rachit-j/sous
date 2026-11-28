@@ -52,7 +52,10 @@ class SousV2AccountBrowserTests(unittest.TestCase):
                 const stream = canvas.captureStream(1);
                 stream.getTracks().forEach(track => {
                   const stop = track.stop.bind(track);
-                  track.stop = () => { window.notifySyntheticTrackStopped(); stop(); };
+                  track.stop = () => {
+                    try { sessionStorage.setItem('syntheticStops', String(Number(sessionStorage.getItem('syntheticStops') || 0) + 1)); } catch {}
+                    window.notifySyntheticTrackStopped(); stop();
+                  };
                 });
                 return stream;
               }
@@ -63,6 +66,8 @@ class SousV2AccountBrowserTests(unittest.TestCase):
         self.page = self.context.new_page()
         self.page_errors = []
         self.page.on("pageerror", lambda error: self.page_errors.append(str(error)))
+        self.console_messages = []
+        self.page.on("console", lambda message: self.console_messages.append(f"{message.type}: {message.text}"))
         self.page.goto(f"http://127.0.0.1:{self.server.server_port}", wait_until="networkidle")
 
     def _track_stopped(self):
@@ -286,7 +291,11 @@ class SousV2AccountBrowserTests(unittest.TestCase):
         self.page.locator("#camera-toggle").click()
         self.page.locator("#camera-video").wait_for(state="visible")
         self.logout()
-        self.assertGreaterEqual(self.track_stops, 1, "Logout must stop every active synthetic camera track.")
+        # Counted inside the page (sessionStorage survives the logout reload). The exposed binding's
+        # Python callback can arrive after logout() returns, so it alone made this check racy.
+        page_stops = int(self.page.evaluate("() => sessionStorage.getItem('syntheticStops') || '0'"))
+        self.assertGreaterEqual(page_stops, 1, f"Logout must stop every active synthetic camera track. "
+                                f"page_errors={self.page_errors} console={self.console_messages[-10:]}")
         self.assertEqual(self.page_errors, [])
 
     def test_real_cooking_tools_advisory_and_history_persist(self):

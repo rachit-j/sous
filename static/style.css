@@ -583,3 +583,7 @@ input[type=number] { font-variant-numeric: tabular-nums; }
   .session-panel.kitchen-mode .video-frame { height: clamp(240px, 52vh, 640px); }
   .session-panel.kitchen-mode .voice-transcript { height: clamp(180px, 32vh, 420px); }
 }
+.recipe-voice-panel { margin: 1rem 0; }
+.recipe-voice-panel .voice-transcript { max-height: 320px; }
+.recipe-voice-panel .voice-transcript:empty { display: none; }
+#recipe-voice-toggle[aria-pressed="true"] { border-color: var(--green); color: var(--green-ink); }

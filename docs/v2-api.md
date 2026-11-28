@@ -45,3 +45,10 @@ Session responses add bounded alert records and observation freshness metadata. 
 Observation normalization may add a bounded advisory safety object and visible-scene/obstruction status. Existing old provider responses remain valid. Manual timer alerts do not depend on AI. Model failures, stale/revoked responses and missing/obscured frames cannot produce an implicit healthy state. Web UI combines server freshness with camera visibility, pending and permission state for paused/camera-off/pending/recent/stale/error/obscured labels. Explain that snapshots are intermittent; no continuous emergency monitoring or automated contacts.
 
 This document defines target contracts for delivery slices; [STATUS.md](../STATUS.md) identifies what has actually shipped. See [V2 specification](v2.md).
+
+
+## V3 additions
+
+- WebSocket `/api/voice/recipe`: voice recipe creation; see [voice](voice.md#voice-recipe-creation).
+- Cooking voice socket: server `frame_request` / browser `frame` messages for `look_at_camera`; see [voice](voice.md#camera-look).
+- Settings: one administrator-managed shared AWS connection; see [settings](settings.md) and [V3](v3.md#shared-aws-connection).

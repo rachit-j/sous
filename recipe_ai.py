@@ -30,8 +30,7 @@ REVIEW = "AI-generated recipe: review every ingredient, amount, time and tempera
 NO_QUANTITIES = "Some ingredients have no structured quantity, so this recipe cannot be scaled precisely."
 BAD_OUTPUT = "The model returned an unusable recipe. Try again or adjust your request."
 FAILED = "Recipe generation failed. Check your AWS connection and model in Settings, then try again."
-NO_MODEL = ("Choose a Bedrock model for your AWS connection in Settings, or make Bedrock with a model your"
-            " default, to use the recipe maker.")
+NO_MODEL = "An administrator must choose the shared Bedrock model in Settings to use the recipe maker."
 BUSY_SELF = "A recipe is already being generated for you. Wait for it to finish."
 BUSY = "The recipe maker is busy. Try again in a moment."
 RATE = "Too many recipe requests. Wait a minute and try again."

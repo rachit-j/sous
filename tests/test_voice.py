@@ -929,6 +929,92 @@ class CameraLookTests(VoiceTestCase):
         self.assertEqual(sent[-1], {"type": "error", "message": voice.BAD_MESSAGE})
 
 
+class RecipeVoiceTests(VoiceTestCase):
+    """Voice recipe creation (docs/v3.md F6): draft_recipe fills the editor and never saves."""
+
+    def setUp(self):
+        super().setUp()
+        self.ready_app(model="amazon.nova-lite-v1:0")  # the shared model
+        self.act(self.session["id"], "end")  # no cooking session is needed
+        from tests.test_library import GENERATED
+        self.generated = GENERATED
+        patcher = mock.patch("providers.bedrock_text", side_effect=self.fake_text)
+        self.bedrock_text = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def fake_text(self, model, system, prompt, connection, *limits):
+        return json.dumps(self.generated)
+
+    def serve_recipe(self, ws):
+        from app import serve_recipe_voice
+        cookie = self.client.get_cookie("session")
+        with self.app.test_request_context("/api/voice/recipe", headers={"Cookie": f"session={cookie.value}"}):
+            serve_recipe_voice(ws)
+        self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
+        return ws.sent
+
+    def ask_draft(self, stream, args, n=1):
+        key = f"draft-{n}"
+        stream.push(
+            event("contentStart", contentId=key, type="TOOL", role="ASSISTANT"),
+            event("toolUse", contentId=key, toolName="draft_recipe", toolUseId=f"draft_{n}", content=json.dumps(args)),
+            event("contentEnd", contentId=key, type="TOOL", stopReason="TOOL_USE"),
+        )
+
+    def draft(self, args):
+        stream = FakeStream()
+        self.install(stream)
+        ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(), run(lambda: self.ask_draft(stream, args)),
+                    lambda w: "toolResult" in stream.kinds(), json.dumps({"type": "stop"}))
+        before = self.client.get("/api/recipes").get_json()["recipes"]
+        sent = self.serve_recipe(ws)
+        self.assertEqual(self.client.get("/api/recipes").get_json()["recipes"], before)  # never saved
+        return sent, json.loads(stream.payload("toolResult")[0]["content"]), stream
+
+    def test_draft_opens_in_the_editor_with_review_warning_and_is_not_saved(self):
+        sent, result, stream = self.draft({"dish": "Tomato toast", "ingredients": ["bread", "tomato"]})
+        drafts = [m for m in sent if m["type"] == "recipe_draft"]
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0]["recipe"]["name"], self.generated["name"])
+        self.assertTrue(drafts[0]["warnings"])  # always asks the cook to review AI output
+        self.assertEqual(result["drafted"], self.generated["name"])
+        self.assertIn("cannot save", result["note"])
+        model, _system, prompt, connection = self.bedrock_text.call_args.args[:4]
+        self.assertEqual(connection.access_key_id, KEY_ID)  # the shared connection
+        self.assertIn("Tomato toast", prompt)
+        self.assertIn('"servings": 2', prompt)  # defaults filled in when the cook did not say
+        tools = [t["toolSpec"]["name"] for t in stream.payload("promptStart")[0]["toolConfiguration"]["tools"]]
+        self.assertEqual(tools, ["draft_recipe"])  # no cooking tools, nothing that saves
+        self.assertIn("cannot save", stream.texts("SYSTEM")[0])
+
+    def test_invalid_requests_fail_before_aws_and_generation_errors_are_static(self):
+        _, result, _ = self.draft({"dish": "Soup", "servings": 99})
+        self.assertIn("error", result)
+        self.bedrock_text.assert_not_called()
+        _, result, _ = self.draft({"dish": "Soup", "unknown": "x"})
+        self.assertEqual(result, {"error": "Unsupported or invalid read-only request."})
+        self.generated = {"name": "<script>"}
+        sent, result, _ = self.draft({"dish": "Soup"})
+        self.assertIn("error", result)
+        self.assertEqual([m for m in sent if m["type"] == "recipe_draft"], [])
+
+    def test_locked_or_missing_connection_never_opens_aws(self):
+        calls = self.install(FakeStream())
+        self.post("/api/settings/lock", {})
+        sent = self.serve_recipe(FakeWS(start_message(self.token)))
+        self.assertEqual(sent, [{"type": "error", "message": voice.LOCKED}])
+        self.assertEqual(calls, [])
+
+    def test_cross_origin_upgrade_is_rejected(self):
+        resp = self.client.get("/api/voice/recipe", headers={"Upgrade": "websocket", "Connection": "Upgrade",
+                                                             "Origin": "http://evil.example"})
+        self.assertEqual(resp.status_code, 403)
+        signed_out = self.app.test_client()
+        resp = signed_out.get("/api/voice/recipe", headers={"Upgrade": "websocket", "Connection": "Upgrade",
+                                                            "Origin": "http://localhost"})
+        self.assertEqual(resp.status_code, 401)
+
+
 class BridgeMappingTests(SettingsTestCase):
     def bridge(self):
         return voice.VoiceBridge(None, None, "tiffany", "", "")

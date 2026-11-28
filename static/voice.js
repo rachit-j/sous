@@ -8,8 +8,10 @@
   const MAX_TRANSCRIPT_CHARS = 6000;
 
   class VoiceCompanion {
-    constructor({ onStatus, onTranscript, onClear, onActive, onFrameRequest }) {
+    constructor({ onStatus, onTranscript, onClear, onActive, onFrameRequest, onDraft, socketPath }) {
       this.onFrameRequest = onFrameRequest;  // () => JPEG data URL or null (camera off/not ready)
+      this.onDraft = onDraft;  // (recipe, warnings) for voice recipe creation; never saves
+      this.socketPath = socketPath || ((sessionId) => `/api/sessions/${encodeURIComponent(sessionId)}/voice`);
       this.onStatus = onStatus;
       this.onTranscript = onTranscript;
       this.onClear = onClear;
@@ -92,7 +94,7 @@
     connectSocket(sessionId, csrfToken, generation) {
       return new Promise((resolve, reject) => {
         const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-        const socket = new WebSocket(`${scheme}//${location.host}/api/sessions/${encodeURIComponent(sessionId)}/voice`);
+        const socket = new WebSocket(`${scheme}//${location.host}${this.socketPath(sessionId)}`);
         this.socket = socket;
         let settled = false;
         const timer = setTimeout(() => {
@@ -154,6 +156,8 @@
           this.setStatus("Sous is replying. Interrupt any time by talking.", "speaking");
           this.armSpeakingTimeout();
         } else this.setStatus("Listening…", "listening");
+      } else if (message.type === "recipe_draft" && message.recipe && typeof message.recipe === "object") {
+        this.onDraft?.(message.recipe, Array.isArray(message.warnings) ? message.warnings : []);
       } else if (message.type === "frame_request" && Number.isInteger(message.id)) {
         // look_at_camera (docs/v3.md F5): one still from the camera that is already on; never the
         // microphone stream, and nothing is kept here.

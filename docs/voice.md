@@ -62,3 +62,10 @@ V3 ([F5](v3.md#f5-voice-can-look-at-the-camera)). Nova 2 Sonic takes speech only
 4. Sonic receives `{look, taken: "just now", note}` or `{error}` and answers aloud. The persona says to describe only that result as something seen just now, that it may be wrong, and that it can never confirm doneness or food safety.
 
 Frames and descriptions are never stored or logged. Looks never change steps, confirmations, observations or alerts; automatic progression stays with the monitoring loop. A vault lock, settings change, logout or session end stops the stream as before, and any look in flight is discarded.
+
+
+## Voice recipe creation
+
+V3 ([F6](v3.md#f6-create-recipes-by-voice)). Recipes → **Create by voice** opens WebSocket `/api/voice/recipe`; no cooking session is needed. It has the same origin check before upgrade, login, first-message CSRF, shared-vault lease, region check, rate limits, one-stream-per-instance rule and stop conditions as the cooking socket, and it also stops when the cook leaves Recipes.
+
+Sonic gets a recipe-planning persona and a single tool, `draft_recipe` (`dish` required; optional `ingredients`, `pantry`, `equipment`, `servings`, `time_budget_minutes`; servings default to 2 and the time budget to 30 minutes). A worker thread runs the existing AI recipe maker: the same `validate_request`, shared model, per-account rate limit and output parser as `POST /api/recipes/generate`. Validation errors are returned before any AWS call. A valid draft goes to the browser as `{"type": "recipe_draft", "recipe", "warnings"}` and fills the editor. Sonic receives only the name and step titles, plus a note that it cannot save. Voice never saves, publishes or starts cooking; saving stays an explicit button press. A vault change while drafting discards the draft.

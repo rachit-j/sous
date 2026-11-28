@@ -438,7 +438,7 @@ def require_login():
 def check_origin_and_csrf():
     # The voice WebSocket upgrade must come from this origin before it is accepted; its CSRF
     # token arrives in the first message (voice.serve), before any AWS call.
-    if request.endpoint == "voice_socket":
+    if request.endpoint in ("voice_socket", "recipe_voice_socket"):
         if request.headers.get("Origin") != request.host_url.rstrip("/"):
             raise ApiError(403, "Cross-origin request rejected.")
         return None
@@ -1289,6 +1289,10 @@ def register_voice_routes(app, sock):
     def voice_socket(ws, session_id):
         serve_voice(ws, session_id)
 
+    @sock.route("/api/voice/recipe")
+    def recipe_voice_socket(ws):
+        serve_recipe_voice(ws)
+
 
 def serve_voice(ws, session_id):
     """Run one voice socket for the request's signed-in account.
@@ -1306,3 +1310,46 @@ def serve_voice(ws, session_id):
     voice.serve(ws, session_id, session.get("csrf_token"), db, get_voice_id(db, user_id),
                 shared_vault(current_app), user_id,
                 lambda: accounts.auth_valid(db, user_id, token_hash, clock()))
+
+
+def recipe_voice_generator(app, user_id, connection, model):
+    """generate(args) for voice recipe drafts (docs/v3.md F6). Runs on a worker thread, so it uses
+    only captured values: the same validation, rate limits and parser as POST /api/recipes/generate.
+    Nothing is saved."""
+    limiter = app.extensions["sous_generation"]
+
+    def generate(args):
+        request_data = recipe_ai.validate_request(args)  # LibraryError(400) before any AWS call
+        if model is None:
+            raise LibraryError(409, recipe_ai.NO_MODEL)
+        import providers
+        limiter.acquire(user_id)  # rejected attempts are not counted
+        try:
+            text = providers.bedrock_text(model, recipe_ai.SYSTEM_PROMPT, recipe_ai.build_prompt(request_data),
+                                          connection, recipe_ai.MAX_OUTPUT_TOKENS, recipe_ai.READ_TIMEOUT,
+                                          recipe_ai.MAX_OUTPUT_CHARS)
+        except providers.ProviderError as exc:
+            app.logger.warning("Voice recipe generation failed: %s", exc.public_message)
+            raise LibraryError(502, recipe_ai.FAILED) from None
+        finally:
+            limiter.release(user_id)
+        return recipe_ai.parse_output(text)
+
+    return generate
+
+
+def serve_recipe_voice(ws):
+    """Voice recipe creation socket for the request's signed-in account; no cooking session."""
+    db = get_db()
+    user = accounts.load_auth(db)
+    if user is None:
+        ws.send(json.dumps({"type": "error", "message": voice.AUTH_FAILED}))
+        return
+    user_id, token_hash, clock = user["id"], g.auth_token_hash, current_app.config["CLOCK"]
+    app = current_app._get_current_object()
+    vault = shared_vault(app)
+    _, connection_settings = vault.state()
+    model = recipe_ai.choose_model(get_defaults(db, user_id), connection_settings)
+    voice.serve_recipe(ws, session.get("csrf_token"), db, get_voice_id(db, user_id), vault, user_id,
+                       lambda: accounts.auth_valid(db, user_id, token_hash, clock()),
+                       lambda connection: recipe_voice_generator(app, user_id, connection, model))

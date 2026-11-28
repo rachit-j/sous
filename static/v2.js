@@ -335,7 +335,52 @@
     if (name === "cancel-timer") return timerAction("cancel", id);
     if (name === "ack-alert") return acknowledgeAlert(id);
   }
+  // Voice recipe creation (docs/v3.md F6). Uses /api/voice/recipe; a draft only fills the editor.
+  let recipeVoice = null;
+  function renderRecipeVoiceTranscript(entries) {
+    const list = $("#recipe-voice-transcript"); list.replaceChildren();
+    entries.forEach((entry) => {
+      const row = document.createElement("li"); row.className = `voice-line ${entry.role}`;
+      row.append(text("strong", entry.role === "user" ? "You" : "Sous"), text("span", entry.text)); list.append(row);
+    });
+    list.scrollTop = list.scrollHeight;
+  }
+  function setRecipeVoiceActive(active) {
+    const toggle = $("#recipe-voice-toggle"); toggle.setAttribute("aria-pressed", String(active));
+    toggle.textContent = active ? "Stop voice" : "Create by voice";
+    if (active) $("#recipe-voice-panel").hidden = false;
+  }
+  function stopRecipeVoice(message = "Voice is off.") { if (recipeVoice?.running) recipeVoice.stop(message); }
+  function recipeVoiceCompanion() {
+    if (recipeVoice || !window.SousVoiceCompanion) return recipeVoice;
+    recipeVoice = new window.SousVoiceCompanion({
+      socketPath: () => "/api/voice/recipe",
+      onStatus: (message, kind) => { const node = $("#recipe-voice-status"); node.textContent = message; node.dataset.state = kind || "off"; },
+      onTranscript: renderRecipeVoiceTranscript,
+      onClear: () => renderRecipeVoiceTranscript([]),
+      onActive: setRecipeVoiceActive,
+      onDraft: (recipe, warnings) => {
+        const draft = { ...recipe }; delete draft.id; delete draft.scope;
+        fillEditor(draft); $("#edit-global").checked = false; renderWarnings(warnings); state.draftWarnings = warnings;
+        $("#recipe-voice-panel").hidden = false;
+        status("#recipe-form-error", "Voice draft ready. Review every ingredient, amount, time and temperature, then save it to your library.");
+      },
+    });
+    return recipeVoice;
+  }
+  async function toggleRecipeVoice() {
+    const companion = recipeVoiceCompanion();
+    if (!companion) return;
+    if (companion.running) { stopRecipeVoice(); return; }
+    $("#recipe-voice-panel").hidden = false;
+    let metadata;
+    try { metadata = (await request("/api/settings")).voice; } catch (error) { status("#library-status", error.message, true); return; }
+    companion.start("recipe", $("meta[name='csrf-token']").content, metadata);
+  }
+
   function bind() {
+    $("#recipe-voice-toggle").addEventListener("click", toggleRecipeVoice);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "visible") stopRecipeVoice("Voice stopped because this tab is hidden."); });
     $("#recipe-search").addEventListener("input", renderRecipes);
     $("#new-recipe-button").addEventListener("click", () => fillEditor());
     $("#open-generator").addEventListener("click", async () => { $("#generator-panel").hidden = false; $("#recipe-editor").hidden = true; updateGenerationAccess(); if (!state.profile) await loadProfile(); $("#generator-panel").scrollIntoView({ block: "start", behavior: "smooth" }); $("#generate-dish").focus({ preventScroll: true }); });
@@ -357,7 +402,7 @@
     $("#scale-recipe").addEventListener("click", () => { const servings = Number($("#edit-servings").value); const id = $("#edit-recipe-id").value; if (!id || !Number.isInteger(servings) || servings < 1 || servings > 24) return; scaleDraft(id, servings); });
     document.addEventListener("sous:ready", (event) => { state.active = true; state.user = event.detail.user; window.sousSampleInterval = event.detail.sampleInterval || 10; updateGenerationAccess(event.detail.settings); loadProfile(); loadUsers(); });
     document.addEventListener("sous:account-settings", (event) => { window.sousSampleInterval = event.detail.settings?.sample_interval || 10; updateGenerationAccess(event.detail.settings); });
-    document.addEventListener("sous:view", (event) => { if (event.detail.view === "recipes") loadRecipes(); if (event.detail.view === "history") loadHistory(); if (event.detail.view === "settings") loadProfile(); });
+    document.addEventListener("sous:view", (event) => { if (event.detail.view !== "recipes") stopRecipeVoice("Voice stopped because you left Recipes."); if (event.detail.view === "recipes") loadRecipes(); if (event.detail.view === "history") loadHistory(); if (event.detail.view === "settings") loadProfile(); });
     document.addEventListener("sous:session", (event) => {
       const session = event.detail.session;
       if (!session?.id) {
@@ -374,6 +419,7 @@
     });
     document.addEventListener("sous:users-changed", loadUsers);
     document.addEventListener("sous:unauthorized", () => {
+      stopRecipeVoice("Voice stopped because you signed out."); $("#recipe-voice-transcript").replaceChildren();
       state.active = false; state.epoch += 1; state.sessionEpoch += 1; state.timers = []; state.notifiedTimerIds.clear(); state.timerNotices = []; clearTimeout(state.timerToastTimer); state.timerToastTimer = null;
       state.user = null; state.recipes = []; state.session = null; state.profile = null; state.accountSettings = null; state.generationReady = false; state.currentHistoryId = null; state.draftWarnings = [];
       state.requests.forEach((controller) => controller.abort());

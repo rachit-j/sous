@@ -79,7 +79,7 @@ LOOK_FAILED = "You could not get a clear look just now. Say so briefly and sugge
 LOOK_LIMIT = "You have looked too often in this conversation. Ask the cook to check for themselves."
 LOOK_BUSY = "You are already looking. Wait for that result."
 TOOL_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
-MAX_TOOL_INPUT = 1024  # bytes of accumulated toolUse content per call
+MAX_TOOL_INPUT = 4096  # bytes of accumulated toolUse content per call (recipe requests are larger)
 MAX_PENDING_TOOLS = 4
 MAX_TOOL_CALLS = 30  # per stream
 CONTEXT_REQUEST = "_context_request"  # internal outbox message; never sent to the browser
@@ -331,7 +331,47 @@ def _event(name, body):
     return {"event": {name: body}}
 
 
-def setup_events(prompt, audio_content, voice_id, instructions):
+def tool_specs(kind):
+    """Sonic toolConfiguration entries for a voice mode ("cooking" or "recipe")."""
+    if kind == "recipe":
+        return [{"toolSpec": {
+            "name": "draft_recipe",
+            "description": ("Write an editable recipe draft from what the cook described. It opens on their"
+                            " screen for review; it never saves, publishes or starts cooking."),
+            "inputSchema": {"json": DRAFT_SCHEMA},
+        }}]
+    return [{"toolSpec": {
+        "name": TOOL_NAME,
+        "description": ("Read the current cooking step, timers, latest camera note and unacknowledged"
+                        " advisory camera alerts when asked."),
+        "inputSchema": {"json": TOOL_SCHEMA},
+    }}, {"toolSpec": {
+        "name": LOOK_TOOL,
+        "description": ("Take one fresh still from the cook's camera and describe what is visible,"
+                        " focused on the cook's question. Use only when the cook asks what you see"
+                        " or whether something looks ready."),
+        "inputSchema": {"json": LOOK_SCHEMA},
+    }}]
+
+
+def tool_arguments(kind, name, args):
+    """Validated tool arguments for this voice mode, or None when the call is not allowed."""
+    if not isinstance(args, dict):
+        return None
+    if kind == "cooking" and name == TOOL_NAME:
+        return {} if not args else None
+    if kind == "cooking" and name == LOOK_TOOL:
+        question = args.get("question", "")
+        if set(args) <= {"question"} and isinstance(question, str) and len(question) <= MAX_LOOK_QUESTION:
+            return {"question": clean_text(question, MAX_LOOK_QUESTION)}
+        return None
+    if kind == "recipe" and name == "draft_recipe":
+        allowed = {"dish", "ingredients", "pantry", "equipment", "servings", "time_budget_minutes"}
+        return dict(args) if set(args) <= allowed and isinstance(args.get("dish"), str) else None
+    return None
+
+
+def setup_events(prompt, audio_content, voice_id, instructions, tools="cooking"):
     return [
         _event("sessionStart", {"inferenceConfiguration": {"maxTokens": 1024, "topP": 0.9, "temperature": 0.7}}),
         _event("promptStart", {
@@ -341,18 +381,7 @@ def setup_events(prompt, audio_content, voice_id, instructions):
                 "mediaType": "audio/lpcm", "sampleRateHertz": OUTPUT_SAMPLE_RATE, "sampleSizeBits": 16,
                 "channelCount": 1, "voiceId": voice_id, "encoding": "base64", "audioType": "SPEECH"},
             "toolUseOutputConfiguration": {"mediaType": "application/json"},
-            "toolConfiguration": {"tools": [{"toolSpec": {
-                "name": TOOL_NAME,
-                "description": ("Read the current cooking step, timers, latest camera note and unacknowledged"
-                                " advisory camera alerts when asked."),
-                "inputSchema": {"json": TOOL_SCHEMA},
-            }}, {"toolSpec": {
-                "name": LOOK_TOOL,
-                "description": ("Take one fresh still from the cook's camera and describe what is visible,"
-                                " focused on the cook's question. Use only when the cook asks what you see"
-                                " or whether something looks ready."),
-                "inputSchema": {"json": LOOK_SCHEMA},
-            }}]},
+            "toolConfiguration": {"tools": tool_specs(tools)},
         }),
         *text_content(prompt, "SYSTEM", instructions, interactive=False),
         _event("contentStart", {
@@ -523,7 +552,8 @@ class SonicStream:
 # --- Bridge: one upstream stream on a dedicated event loop thread -----------
 
 class VoiceBridge:
-    def __init__(self, open_stream, connection, voice_id, instructions, greeting_text):
+    def __init__(self, open_stream, connection, voice_id, instructions, greeting_text, tools="cooking"):
+        self._tools = tools  # "cooking" or "recipe": which read-only tools Sonic may call
         self._open_stream = open_stream
         self._connection = connection  # immutable snapshot
         self._voice_id = voice_id
@@ -707,7 +737,7 @@ class VoiceBridge:
 
     async def _setup(self, stream):
         await self._send_all(stream, setup_events(self._prompt, self._audio_content, self._voice_id,
-                                                  self._instructions))
+                                                  self._instructions, self._tools))
         await self._send_all(stream, text_content(self._prompt, "USER", self._greeting, interactive=True))
 
     async def _send_tool_result(self, stream, content_name, tool_use_id, result):
@@ -861,33 +891,25 @@ class VoiceBridge:
         tool_id = item["tool_use_id"]
         valid_id = isinstance(tool_id, str) and TOOL_ID.fullmatch(tool_id)
         name = item["tool_name"]
-        valid_name = name in (TOOL_NAME, LOOK_TOOL)
         try:
             args = json.loads(item["content"] or "{}")
         except (ValueError, TypeError):
             args = None
-        question = args.get("question", "") if isinstance(args, dict) else None
-        if name == LOOK_TOOL:
-            valid_args = (isinstance(args, dict) and set(args) <= {"question"} and isinstance(question, str)
-                          and len(question) <= MAX_LOOK_QUESTION)
-        else:
-            valid_args = isinstance(args, dict) and not args
+        cleaned = None if item["content"] == "!invalid!" else tool_arguments(self._tools, name, args)
         if self._tool_calls > MAX_TOOL_CALLS:
             result = {"error": "Request limit reached."}
-        elif not valid_name or not valid_args or item["content"] == "!invalid!":
+        elif cleaned is None:
             result = {"error": "Unsupported or invalid read-only request."}
         else:
-            result = None  # controller reads fresh server state on its request thread
+            result = None  # the request thread answers from fresh server state
         if not valid_id:
             return
-        if result is None and name == LOOK_TOOL:
-            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id,
-                        "tool": LOOK_TOOL, "question": clean_text(question, MAX_LOOK_QUESTION)})
-        elif result is None:
-            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id})
+        message = {"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id}
+        if result is None:
+            message.update(tool=name, args=cleaned, question=cleaned.get("question", ""))
         else:
-            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id,
-                        "result": result})
+            message["result"] = result
+        self._emit(message)
 
     def answer_context(self, content_name, tool_use_id, result):
         return self._offer(("tool_result", (content_name, tool_use_id, result)))
@@ -908,14 +930,34 @@ class VoiceBridge:
 # --- WebSocket controller (request thread) ----------------------------------
 
 def serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid):
-    """Handle one voice WebSocket for an authenticated account. Always ends with a stopped/error
-    message unless disconnected.
+    """Handle one cooking voice WebSocket for an authenticated account. Always ends with a
+    stopped/error message unless disconnected.
 
-    vault is that account's Vault; only sessions owned by user_id are served. auth_valid() reports
+    vault is the shared Vault; only sessions owned by user_id are served. auth_valid() reports
     whether the caller's login is still live and is polled while streaming.
     """
+    def prepare(connection, epoch):
+        row = db.execute("SELECT * FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
+        if row is None or row["status"] != "active" or not row["recipe_snapshot"]:
+            return _error(NOT_ACTIVE), None
+        return None, CookingHandler(ws, db, session_id, row, connection)
+
+    _respond(ws, lambda: _serve(ws, expected_csrf, voice_id, vault, auth_valid, prepare))
+
+
+def serve_recipe(ws, expected_csrf, db, voice_id, vault, user_id, auth_valid, make_generate):
+    """Voice recipe creation (docs/v3.md F6): no cooking session needed. make_generate(connection)
+    returns generate(request), which runs the AI recipe maker for this account with the leased
+    connection and returns {recipe, warnings} or raises. Voice never saves."""
+    def prepare(connection, epoch):
+        return None, RecipeHandler(ws, user_id, vault, epoch, make_generate(connection))
+
+    _respond(ws, lambda: _serve(ws, expected_csrf, voice_id, vault, auth_valid, prepare))
+
+
+def _respond(ws, run):
     try:
-        terminal = _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid)
+        terminal = run()
     except ConnectionClosed:
         return
     except Exception as exc:
@@ -931,7 +973,7 @@ def _error(message):
     return {"type": "error", "message": message}
 
 
-def _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_valid):
+def _serve(ws, expected_csrf, voice_id, vault, auth_valid, prepare):
     state = current_app.extensions["sous_voice"]
     if not state["pending"].acquire(blocking=False):
         return _error(BUSY)
@@ -941,12 +983,11 @@ def _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_val
         state["pending"].release()
     if not authenticated:
         return _error(AUTH_FAILED)
-
-    row = db.execute("SELECT * FROM sessions WHERE id = ? AND user_id = ?", (session_id, user_id)).fetchone()
-    if row is None or row["status"] != "active" or not row["recipe_snapshot"]:
-        return _error(NOT_ACTIVE)
     # One atomic lease: any later lock/unlock/save changes the epoch, even with identical keys.
     epoch, connection = vault.lease()
+    problem, handler = prepare(connection, epoch)
+    if problem is not None:
+        return problem
     if connection is None:
         return _error(voice_status(vault)[1] or NO_CONNECTION)  # locked or nothing saved
     if connection.region not in SUPPORTED_REGIONS:
@@ -963,8 +1004,10 @@ def _serve(ws, session_id, expected_csrf, db, voice_id, vault, user_id, auth_val
             state["lingering"] = None
         if not _allow_start(state):
             return _error(TOO_MANY)
-        return _run(ws, state, state["open_stream"], db, session_id, row, vault, epoch, connection, voice_id,
-                    auth_valid)
+        handler.describe = state.get("describe_frame") or default_describe
+        bridge = VoiceBridge(state["open_stream"], connection, voice_id, handler.instructions(),
+                             handler.greeting(), handler.TOOLS)
+        return _run(ws, state, bridge, vault, epoch, auth_valid, handler)
     finally:
         state["active"].release()
 
@@ -1102,59 +1145,196 @@ def _valid_pcm(data):
     return 2 <= len(data) <= MAX_AUDIO_FRAME and len(data) % 2 == 0
 
 
-def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, voice_id, auth_valid):
-    recipe = json.loads(row["recipe_snapshot"])
-    clock = current_app.config["CLOCK"]
-    at = clock()
-    watcher = SessionWatcher(db, session_id, recipe, row, at)
-    bridge = VoiceBridge(open_stream, connection, voice_id, system_prompt(recipe), greeting(recipe, row, at))
-    look = CameraLook(state.get("describe_frame") or default_describe, connection)
+PENDING = object()  # a tool answer that arrives later, through handler.tick()
+
+
+class CookingHandler:
+    """Cooking companion: context and camera-look tools, session-change narration."""
+
+    TOOLS = "cooking"
+    browser_types = ("frame",)
+
+    def __init__(self, ws, db, session_id, row, connection):
+        self.ws, self.db, self.session_id = ws, db, session_id
+        self.clock = current_app.config["CLOCK"]
+        self.recipe = json.loads(row["recipe_snapshot"])
+        self.row, self.at = row, self.clock()
+        self.watcher = SessionWatcher(db, session_id, self.recipe, row, self.at)
+        self.connection = connection
+        self.describe = None
+        self.look = None
+
+    def instructions(self):
+        return system_prompt(self.recipe)
+
+    def greeting(self):
+        return greeting(self.recipe, self.row, self.at)
+
+    def _fresh(self):
+        fresh = self.db.execute("SELECT * FROM sessions WHERE id = ?", (self.session_id,)).fetchone()
+        return None if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"] else fresh
+
+    def tool(self, message):
+        fresh = self._fresh()
+        if fresh is None:
+            return {"error": NOT_ACTIVE}
+        recipe = json.loads(fresh["recipe_snapshot"])
+        if message.get("tool") == LOOK_TOOL:
+            if self.look is None:
+                self.look = CameraLook(self.describe, self.connection)
+            request, answered = self.look.begin(message, fresh, recipe, time.monotonic())
+            if request is None:
+                return answered[2]
+            self.ws.send(json.dumps(request))  # the cook's own browser supplies the frame
+            return PENDING
+        at = self.clock()  # read-only: named timers and unacknowledged advisory alerts
+        tools = cooking.voice_context(self.db, self.session_id, at, clean_text, format_seconds)
+        return {"context": describe_state(recipe, fresh, at, tools)[:MAX_CONTEXT]}
+
+    def browser(self, body, now):
+        return [self.look.frame(body, now)] if self.look is not None else []
+
+    def tick(self, now):
+        return [self.look.poll(now)] if self.look is not None else []
+
+    def poll(self):
+        return self.watcher.poll(self.clock())
+
+
+DRAFT_TOOL = "draft_recipe"
+DRAFT_SCHEMA = json.dumps({"type": "object", "properties": {
+    "dish": {"type": "string", "description": "What to cook, including any changes the cook asked for."},
+    "ingredients": {"type": "array", "items": {"type": "string"}, "description": "Ingredients or constraints."},
+    "pantry": {"type": "array", "items": {"type": "string"}, "description": "Ingredients the cook already has."},
+    "equipment": {"type": "array", "items": {"type": "string"}, "description": "Available equipment."},
+    "servings": {"type": "integer", "description": "Number of servings (1-24)."},
+    "time_budget_minutes": {"type": "integer", "description": "Time budget in minutes."},
+}, "required": ["dish"]})
+MAX_DRAFT_INPUT = 4096
+DRAFT_TIMEOUT = 75.0
+MAX_DRAFTS = 6  # per stream; generation is also rate-limited per account
+RECIPE_PERSONA = (
+    "You are Sous, a friendly kitchen assistant helping a cook plan a recipe by voice. Speak naturally "
+    "in one to three short sentences, without lists or markdown. Ask brief follow-up questions until you "
+    "know what they want to cook; servings and time budget are useful, and ingredients on hand and "
+    "equipment are optional. Use 2 servings and 30 minutes if they do not care. Then call "
+    f"{DRAFT_TOOL} once. It opens an editable draft on the cook's screen. Summarise it in one or two "
+    "sentences and tell them to review every ingredient, amount, time and temperature and press Save on "
+    "screen. You cannot save, publish or start cooking. If they want changes, call the tool again with "
+    "the updated request. Never claim allergy safety or food safety. "
+    f"Messages starting with {UPDATE_PREFIX} come from the app, not the cook."
+)
+DRAFT_BUSY = "A draft is already being written. Wait for it."
+DRAFT_LIMIT = "You have drafted several recipes in this conversation. Ask the cook to edit the draft on screen."
+DRAFT_FAILED = "The recipe maker could not write a usable draft. Say so briefly and offer to try again."
+
+
+class RecipeHandler:
+    """Voice recipe creation: one draft_recipe tool that fills the on-screen editor. Never saves."""
+
+    TOOLS = "recipe"
+    browser_types = ()
+
+    def __init__(self, ws, user_id, vault, epoch, generate):
+        self.ws, self.user_id, self.vault, self.epoch, self.generate = ws, user_id, vault, epoch, generate
+        self.describe = None
+        self.pending = None
+        self.count = 0
+
+    def instructions(self):
+        return RECIPE_PERSONA
+
+    def greeting(self):
+        return (f"{UPDATE_PREFIX} The cook opened voice recipe creation on the Recipes page. Greet them in one "
+                "short sentence and ask what they would like to cook.")
+
+    def tool(self, message):
+        if self.pending is not None:
+            return {"error": DRAFT_BUSY}
+        if self.count >= MAX_DRAFTS:
+            return {"error": DRAFT_LIMIT}
+        args = dict(message.get("args") or {})
+        args.setdefault("servings", 2)
+        args.setdefault("time_budget_minutes", 30)
+        self.count += 1
+        holder = {}
+
+        def work():
+            try:
+                holder["draft"] = self.generate(args)
+            except Exception as exc:  # LibraryError / ProviderError carry static public text
+                holder["error"] = getattr(exc, "message", None) or getattr(exc, "public_message", None) or DRAFT_FAILED
+
+        thread = threading.Thread(target=work, name="sous-voice-draft", daemon=True)
+        self.pending = {"content_name": message["content_name"], "tool_use_id": message["tool_use_id"],
+                        "thread": thread, "holder": holder, "deadline": time.monotonic() + DRAFT_TIMEOUT}
+        thread.start()
+        return PENDING
+
+    def browser(self, body, now):
+        return []
+
+    def tick(self, now):
+        pending = self.pending
+        if pending is None:
+            return []
+        if pending["thread"].is_alive():
+            if now < pending["deadline"]:
+                return []
+            result = {"error": DRAFT_FAILED}
+        elif self.vault.epoch != self.epoch:  # settings changed meanwhile: discard the draft
+            result = {"error": DRAFT_FAILED}
+        elif "draft" in pending["holder"]:
+            draft = pending["holder"]["draft"]
+            recipe = draft.get("recipe") or {}
+            self.ws.send(json.dumps({"type": "recipe_draft", "recipe": recipe,
+                                     "warnings": draft.get("warnings") or []}))
+            result = {"drafted": clean_text(str(recipe.get("name") or "Recipe"), 120),
+                      "steps": [clean_text(str(step.get("title") or ""), 80) for step in recipe.get("steps") or []],
+                      "note": "The draft is open on screen for the cook to review and save. You cannot save it."}
+        else:
+            result = {"error": clean_text(str(pending["holder"].get("error") or DRAFT_FAILED), 300)}
+        self.pending = None
+        return [(pending["content_name"], pending["tool_use_id"], result)]
+
+    def poll(self):
+        return None, None
+
+
+def _run(ws, state, bridge, vault, epoch, auth_valid, handler):
     bridge.start()
     started = last_audio = time.monotonic()
     next_poll = started + POLL_INTERVAL
     ready = False
     terminal = None
+
+    def answer(answers):
+        for item in answers:
+            if item is not None and not bridge.answer_context(*item):
+                return _error(SLOW)
+        return None
+
     try:
         while terminal is None:
             finished = bridge.finished.is_set()
             for message in bridge.drain():
                 if message["type"] == CONTEXT_REQUEST:
-                    if "result" in message:
-                        result = message["result"]
-                    elif message.get("tool") == LOOK_TOOL:
-                        fresh = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                        if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"]:
-                            result = {"error": NOT_ACTIVE}
-                        else:
-                            request, answered = look.begin(message, fresh, json.loads(fresh["recipe_snapshot"]),
-                                                           time.monotonic())
-                            if request is not None:
-                                ws.send(json.dumps(request))  # the cook's own browser supplies the frame
-                                continue
-                            result = answered[2]
-                    else:
-                        fresh = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-                        if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"]:
-                            result = {"error": NOT_ACTIVE}
-                        else:
-                            fresh_recipe = json.loads(fresh["recipe_snapshot"])
-                            at = clock()  # read-only: named timers and unacknowledged advisory alerts
-                            tools = cooking.voice_context(db, session_id, at, clean_text, format_seconds)
-                            result = {"context": describe_state(fresh_recipe, fresh, at, tools)[:MAX_CONTEXT]}
-                    if not bridge.answer_context(message["content_name"], message["tool_use_id"], result):
-                        terminal = _error(SLOW)
+                    result = message["result"] if "result" in message else handler.tool(message)
+                    if result is not PENDING:
+                        terminal = answer([(message["content_name"], message["tool_use_id"], result)])
                     continue  # internal request: never expose it to the browser
                 if message["type"] == "ready":
                     ready, last_audio = True, time.monotonic()
                 ws.send(json.dumps(message))
+            if terminal is not None:
+                break
             if finished:
                 if bridge.outbox.empty():
                     terminal = bridge.terminal()
                 continue
             now = time.monotonic()
-            looked = look.poll(now)
-            if looked is not None and not bridge.answer_context(*looked):
-                terminal = _error(SLOW)
+            terminal = answer(handler.tick(now))
+            if terminal is not None:
                 break
             current_epoch, current = vault.lease()  # in-memory only; never an ambient lookup
             if now - started >= MAX_STREAM_SECONDS:
@@ -1170,7 +1350,7 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                 if not auth_valid():  # logout, password change or reset revoked this login
                     terminal = {"type": "stopped", "reason": "signed_out"}
                     break
-                update, end = watcher.poll(clock())
+                update, end = handler.poll()
                 if end:
                     terminal = {"type": "stopped", "reason": end}
                 elif update and ready and not bridge.send_text(update):
@@ -1189,10 +1369,9 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                     last_audio = time.monotonic()
             else:
                 body = _json_object(message) if len(message) <= MAX_FRAME_MESSAGE else None
-                if body is not None and body.get("type") == "frame" and set(body) <= {"type", "id", "image", "error"}:
-                    looked = look.frame(body, time.monotonic())
-                    if looked is not None and not bridge.answer_context(*looked):
-                        terminal = _error(SLOW)
+                if (body is not None and body.get("type") in handler.browser_types
+                        and set(body) <= {"type", "id", "image", "error"}):
+                    terminal = answer(handler.browser(body, time.monotonic()))
                 elif len(message) <= MAX_CONTROL_BYTES and body == {"type": "stop"}:
                     terminal = {"type": "stopped", "reason": "client_stop"}
                 else:

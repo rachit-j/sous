@@ -2,9 +2,6 @@
 
 Start it first:  SOUS_PORT=5051 docker compose -p sous-verify up -d --build
 Run:             SOUS_CONTAINER_TESTS=1 python -m unittest tests.test_container -v
-Live Ollama:     TMPDIR=/tmp PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit SOUS_CONTAINER_TESTS=1 \
-                 SOUS_LIVE_OLLAMA=1 .venv/bin/python -m unittest tests.test_container -v
-                 (needs qwen3-vl:8b on the host Ollama and Playwright WebKit installed under /tmp).
 Only the sous-verify project on 127.0.0.1:5051 is ever touched; the check runs before any mutation.
 """
 
@@ -12,10 +9,8 @@ import os
 import json
 import re
 import subprocess
-import tempfile
 import time
 import unittest
-from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
@@ -27,7 +22,10 @@ BASE_URL = os.environ.get("SOUS_CONTAINER_URL", f"http://127.0.0.1:{PORT}").rstr
 SYNTHETIC_PASSPHRASE = "sous verify synthetic passphrase"
 SYNTHETIC_ACCESS_KEY = "AKIA1234567890TEST"
 SYNTHETIC_SECRET_KEY = "synthetic-container-secret-key"
-LIVE_MODEL = "qwen3-vl:8b"
+# Synthetic shared connection saved through the admin API; saving never contacts AWS.
+VAULT_PASSPHRASE = "sous-verify-synthetic-vault-passphrase"
+SYNTHETIC_CONNECTION = {"region": "us-east-1", "model": "amazon.nova-lite-v1:0",
+                        "access_key_id": "AKIASYNTHETIC0000001", "secret_access_key": "synthetic-secret-access-key"}
 _verified_fixture = False
 
 
@@ -104,7 +102,18 @@ class ContainerTestCase(unittest.TestCase):
         if active and active["status"] == "active":
             self.api("POST", f"/api/sessions/{active['id']}/actions", json={"action": "end"})
 
-    def start_session(self, provider="ollama", model="test-model"):
+    def ensure_shared_connection(self):
+        """Create or unlock the shared vault and save the synthetic connection (admin fixture)."""
+        vault = self.api("GET", "/api/settings").json()["vault"]
+        path = "/api/settings/unlock" if vault["initialized"] else "/api/settings/vault"
+        if vault["locked"]:
+            resp = self.api("POST", path, json={"passphrase": VAULT_PASSPHRASE})
+            self.assertIn(resp.status_code, (200, 201), resp.text)
+        resp = self.api("PUT", "/api/settings/bedrock", json=SYNTHETIC_CONNECTION)
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+    def start_session(self, provider="bedrock", model="amazon.nova-lite-v1:0"):
+        self.ensure_shared_connection()
         resp = self.api("POST", "/api/sessions", json={
             "recipe_id": self.api("GET", "/api/config").json()["recipes"][0]["id"],
             "provider": provider, "model": model, "mode": "monitoring"})
@@ -238,8 +247,9 @@ class ContainerPersistenceTests(ContainerTestCase):
         recipe_id = saved.json()["recipe"]["id"]
         self.assertEqual(saved.json()["recipe"]["scope"], "personal")
 
+        self.ensure_shared_connection()
         started = self.api("POST", "/api/sessions", json={
-            "recipe_id": recipe_id, "provider": "ollama", "model": "test-model", "mode": "monitoring"})
+            "recipe_id": recipe_id, "provider": "bedrock", "model": "amazon.nova-lite-v1:0", "mode": "monitoring"})
         self.assertEqual(started.status_code, 201, started.text)
         session_id = started.json()["id"]
         timer_path = f"/api/sessions/{session_id}/timers"
@@ -289,50 +299,6 @@ class ContainerPersistenceTests(ContainerTestCase):
                 pass
             time.sleep(1.5)
         self.fail("container did not become ready after restart")
-
-
-@unittest.skipUnless(os.environ.get("SOUS_LIVE_OLLAMA") == "1", "set SOUS_LIVE_OLLAMA=1 for the live Ollama check")
-class ContainerLiveOllamaTests(ContainerTestCase):
-    def neutral_frame(self):
-        """A plain generated canvas image (gray counter, white plate); no camera or personal browser."""
-        tmp_root = Path("/tmp").resolve()
-        browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
-        if not browsers or not Path(browsers).resolve().is_relative_to(tmp_root) or not Path(browsers).is_dir():
-            self.fail("live test needs PLAYWRIGHT_BROWSERS_PATH pointing to an existing WebKit install under /tmp "
-                      "(e.g. /tmp/sous-webkit); no other browser runtime is used")
-        scratch = os.environ.get("TMPDIR", "")
-        if not scratch or not Path(scratch).resolve().is_relative_to(tmp_root) \
-                or not Path(tempfile.gettempdir()).resolve().is_relative_to(tmp_root):
-            self.fail("live test needs TMPDIR under /tmp so the browser's temporary profile stays there")
-        from playwright.sync_api import sync_playwright
-        with sync_playwright() as p:
-            browser = p.webkit.launch()  # ephemeral profile; runtime verified above
-            try:
-                page = browser.new_page()
-                return page.evaluate("""() => {
-                    const c = document.createElement('canvas'); c.width = 640; c.height = 480;
-                    const g = c.getContext('2d');
-                    g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, 640, 480);
-                    g.fillStyle = '#f5f5f5'; g.beginPath(); g.arc(320, 240, 120, 0, 7); g.fill();
-                    return c.toDataURL('image/jpeg', 0.75);
-                }""")
-            finally:
-                browser.close()
-
-    def test_container_reaches_host_ollama(self):
-        frame = self.neutral_frame()
-        self.assertTrue(frame.startswith("data:image/jpeg;base64,"))
-        session = self.start_session(model=LIVE_MODEL)
-        resumed = self.act(session["id"], "resume")
-        resp = self.api("POST", f"/api/sessions/{session['id']}/observations", timeout=195,
-                        json={"image": frame, "revision": resumed["revision"]})
-        self.assertEqual(resp.status_code, 200, resp.text)
-        obs = resp.json()["latest_observation"]
-        self.assertIsInstance(obs["activity"], str)
-        self.assertIsInstance(obs["evidence"], str)
-        self.assertTrue(0 <= obs["confidence"] <= 1)
-        self.assertIsInstance(obs["step_complete"], bool)
-        self.assertTrue(obs["alert"] is None or isinstance(obs["alert"], str))
 
 
 if __name__ == "__main__":

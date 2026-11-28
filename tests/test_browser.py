@@ -18,6 +18,9 @@ from pathlib import Path
 from werkzeug.serving import make_server
 
 from app import create_app
+from tests.support import ready_shared_vault
+
+ARTIFACTS = os.environ.get("SOUS_ARTIFACTS", os.path.join(tempfile.gettempdir(), "sous-webkit-artifacts"))
 
 
 class SousBrowserTests(unittest.TestCase):
@@ -43,8 +46,8 @@ class SousBrowserTests(unittest.TestCase):
         cls.sync_playwright = staticmethod(sync_playwright)
 
     def setUp(self):
-        Path("/private/tmp/sous-webkit-artifacts").mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-browser-", dir="/tmp")
+        Path(ARTIFACTS).mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-browser-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         db_path = os.path.join(self.temp.name, "sous.sqlite3")
         recipe_dir = Path(self.temp.name) / "recipes"
@@ -70,6 +73,7 @@ class SousBrowserTests(unittest.TestCase):
             "SECRET_KEY": "browser-test-secret",
             "RECIPE_DIR": str(recipe_dir),
         })
+        ready_shared_vault(app)  # V3: one synthetic shared Bedrock connection
         self.server = make_server("127.0.0.1", 0, app, threaded=True)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
@@ -98,12 +102,10 @@ class SousBrowserTests(unittest.TestCase):
         self.server_thread.join(timeout=3)
         self.server.server_close()
 
-    def start_session(self, model="llava", recipe_id=None):
+    def start_session(self, recipe_id=None):
+        """Starts with the shared Bedrock model; V3 has no per-session provider override."""
         if recipe_id:
             self.page.locator("#recipe-select").select_option(recipe_id)
-        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
-            self.page.locator("#provider-overrides > summary").click()
-        self.page.locator("#model-input").fill(model)
         self.page.locator("#start-session").click()
         self.page.locator("#session-panel").wait_for(state="visible")
 
@@ -197,12 +199,12 @@ class SousBrowserTests(unittest.TestCase):
         page.wait_for_function("document.querySelector('#recipe-peek .peek-title')?.textContent !== 'Herbed rice'")
 
         self.prepare_page_top()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/setup-desktop.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/setup-desktop.png", full_page=True)
         self.assert_no_horizontal_overflow("Setup at desktop width")
 
         page.set_viewport_size({"width": 390, "height": 844})
         self.prepare_page_top()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/setup-mobile.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/setup-mobile.png", full_page=True)
         self.assert_no_horizontal_overflow("Setup at 390px")
         self.assertTrue(page.locator("#start-session").is_visible())
         self.assertTrue(page.locator("#start-session").is_enabled())
@@ -259,13 +261,13 @@ class SousBrowserTests(unittest.TestCase):
 
         self.prepare_page_top()
         self.assert_cook_column_starts_with_workspace()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-desktop.png", full_page=True)
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-desktop-viewport.png")
+        page.screenshot(path=ARTIFACTS + "/cooking-desktop.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/cooking-desktop-viewport.png")
         self.assert_no_horizontal_overflow("Cooking at desktop width")
         self.assert_correct_form_fully_visible("Desktop")
         page.set_viewport_size({"width": 390, "height": 844})
         self.prepare_page_top()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/cooking-mobile.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/cooking-mobile.png", full_page=True)
         self.assert_no_horizontal_overflow("Cooking at 390px")
         self.assert_correct_form_fully_visible("Mobile")
 
@@ -282,12 +284,12 @@ class SousBrowserTests(unittest.TestCase):
         page.get_by_role("heading", name="Cooking complete.").wait_for()
         page.set_viewport_size({"width": 1280, "height": 900})
         self.prepare_page_top()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/completion-desktop.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/completion-desktop.png", full_page=True)
         self.assert_no_horizontal_overflow("Completion at desktop width")
 
         page.set_viewport_size({"width": 390, "height": 844})
         self.prepare_page_top()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/completion-mobile.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/completion-mobile.png", full_page=True)
         self.assert_no_horizontal_overflow("Completion at 390px")
         self.assertTrue(page.locator("#new-session").is_visible())
         page.set_viewport_size({"width": 1280, "height": 900})
@@ -514,10 +516,10 @@ class SousBrowserTests(unittest.TestCase):
             "thinking",
         )
         page.locator(".camera-panel").scroll_into_view_if_needed()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/analysis-desktop.png")
+        page.screenshot(path=ARTIFACTS + "/analysis-desktop.png")
         page.set_viewport_size({"width": 390, "height": 844})
         page.locator(".camera-panel").scroll_into_view_if_needed()
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/analysis-mobile.png")
+        page.screenshot(path=ARTIFACTS + "/analysis-mobile.png")
         self.assert_no_horizontal_overflow("Pending analysis at 390px")
         page.set_viewport_size({"width": 1280, "height": 900})
         self.assertTrue(page.locator("#analysis-dots").is_visible())
@@ -573,45 +575,6 @@ class SousBrowserTests(unittest.TestCase):
         page.locator("#completion-panel").wait_for(state="visible")
         self.assertTrue(page.locator("#analysis-dots").is_hidden())
         self.assertIsNone(page.locator("#observation-panel").get_attribute("aria-busy"))
-        self.assert_clean_browser()
-
-    def test_optional_live_local_ollama_observation(self):
-        if os.environ.get("SOUS_LIVE_OLLAMA") != "1":
-            self.skipTest("Set SOUS_LIVE_OLLAMA=1 to call the configured local Ollama model.")
-        if not self.page.evaluate("typeof HTMLCanvasElement.prototype.captureStream === 'function'"):
-            self.skipTest("This WebKit runtime does not support synthetic canvas captureStream.")
-        self.page.evaluate("""
-            Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {
-              getUserMedia: async () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = 320; canvas.height = 180;
-                const context = canvas.getContext('2d');
-                context.fillStyle = '#c7b69a'; context.fillRect(0, 0, 320, 180);
-                return canvas.captureStream(2);
-              }
-            }});
-        """)
-        self.assertIn("captureStream", self.page.evaluate("navigator.mediaDevices.getUserMedia.toString()"))
-        self.start_session(model="qwen3-vl:8b")
-        self.page.locator("#camera-toggle").click()
-        self.page.locator("#camera-video").wait_for(state="visible")
-        self.page.wait_for_function("document.querySelector('#camera-video').readyState >= 2", timeout=5000)
-        self.page.locator("#monitoring-toggle").click()
-        self.page.get_by_text("Guidance on").wait_for()
-        self.page.locator("#analyze-now").click()
-        self.page.wait_for_function("""
-          (() => {
-            const observation = document.querySelector('#observation-content .observation-text');
-            const status = document.querySelector('#camera-message')?.textContent || '';
-            return Boolean(observation?.textContent.trim()) || /failed|unusable|not available/i.test(status);
-          })()
-        """, timeout=195000)
-        observation = self.page.locator("#observation-content .observation-text")
-        self.assertTrue(
-            observation.is_visible(),
-            f"Local Ollama did not return a usable observation: {self.page.locator('#camera-message').inner_text()}",
-        )
-        self.assertTrue(self.page.locator("#confidence-pill").is_visible())
         self.assert_clean_browser()
 
     @staticmethod

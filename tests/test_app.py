@@ -10,17 +10,17 @@ import unittest
 from contextlib import closing
 from unittest import mock
 
-import requests
 from flask import jsonify, request
 from jinja2 import DictLoader
 
 import providers
 from app import create_app
+from tests.support import MODEL, ready_shared_vault
 
 # Minimal bytes with JPEG SOI/EOI markers; providers are faked so it is never decoded.
 FAKE_JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
 INDEX = '<meta name="csrf-token" content="{{ csrf_token }}">'
-START = {"recipe_id": "scrambled-eggs", "provider": "ollama", "model": "llava", "mode": "monitoring"}
+START = {"recipe_id": "scrambled-eggs", "provider": "bedrock", "model": MODEL, "mode": "monitoring"}
 # Synthetic fixture account: the first browser sets it up through POST /api/auth/setup, later
 # browsers (other tabs, restarts) sign in through POST /api/auth/login.
 COOK = {"username": "cook", "password": "synthetic-cook-password-01"}
@@ -54,6 +54,8 @@ class SousTestCase(unittest.TestCase):
                   "CLOCK": lambda: self.clock, **getattr(self, "app_config", {}), **overrides}
         app = create_app(config)
         app.jinja_env.loader = DictLoader({"index.html": INDEX})  # stand-in for Luna's template
+        if getattr(self, "shared_connection", True):
+            ready_shared_vault(app)
         return app
 
     def browser(self, app):
@@ -91,20 +93,21 @@ class SousTestCase(unittest.TestCase):
 
 class SecurityTests(SousTestCase):
     def test_config_lists_recipe_and_providers_without_secrets(self):
-        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-very-secret", "OPENAI_MODEL": "gpt-x",
-                                          "OLLAMA_MODEL": "llava"}):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-very-secret", "OLLAMA_MODEL": "llava"}):
             resp = self.client.get("/api/config")
-            refused = self.post("/api/sessions", {**START, "provider": "openai", "model": "gpt-x"})
+            refused = [self.post("/api/sessions", {**START, "provider": p, "model": "x"}).status_code
+                       for p in ("openai", "ollama", "anthropic")]
         data = resp.get_json()
-        self.assertNotIn("sk-very-secret", resp.get_data(as_text=True))
+        text = resp.get_data(as_text=True)
+        for secret in ("sk-very-secret", "synthetic-secret-access-key", "AKIASYNTHETIC0000001"):
+            self.assertNotIn(secret, text)
         self.assertEqual(data["sample_interval"], 10)
         self.assertEqual(data["recipes"][0]["id"], "scrambled-eggs")  # first bundled sample
-        # V2: shared server cloud keys never configure a provider for an account; Ollama stays shared.
-        openai = next(p for p in data["providers"] if p["id"] == "openai")
-        self.assertEqual(openai, {"id": "openai", "name": "OpenAI", "configured": False, "default_model": ""})
-        ollama = next(p for p in data["providers"] if p["id"] == "ollama")
-        self.assertEqual((ollama["configured"], ollama["default_model"]), (True, "llava"))
-        self.assertEqual(refused.status_code, 400)
+        # V3: only Bedrock, through the shared administrator connection.
+        self.assertEqual(data["providers"], [{"id": "bedrock", "name": "AWS Bedrock", "source": "managed",
+                                              "locked": False, "configured": True, "default_model": MODEL}])
+        self.assertEqual(data["defaults"], {"provider": "bedrock", "model": MODEL})
+        self.assertEqual(refused, [400, 400, 400])
 
     def test_post_without_or_with_wrong_csrf_token_is_rejected(self):
         resp = self.client.post("/api/sessions", json=START)
@@ -370,8 +373,8 @@ class ObservationTests(SousTestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def fake_analyze(self, provider, model, jpeg, context):
-        self.assertEqual((provider, model, jpeg), ("ollama", "llava", FAKE_JPEG))
+    def fake_analyze(self, provider, model, jpeg, context, **_):
+        self.assertEqual((provider, model, jpeg), ("bedrock", MODEL, FAKE_JPEG))
         if self.on_analyze:
             self.on_analyze()
         out = self.outputs.pop(0)
@@ -492,33 +495,30 @@ class ObservationTests(SousTestCase):
 
 
 class ProviderIntegrationTests(SousTestCase):
-    """Observation route through the real providers module with HTTP mocked (Ollama wire shape)."""
+    """Observation route through the real providers module with the Bedrock client mocked."""
 
     def setUp(self):
         super().setUp()
-        env = mock.patch.dict(os.environ, {"OLLAMA_BASE_URL": ""})
-        env.start()
-        self.addCleanup(env.stop)
-        post = mock.patch("providers.requests.post")
-        self.http_post = post.start()
-        self.addCleanup(post.stop)
-        sid = self.start(model="qwen3-vl:8b")["id"]
+        session = mock.patch("boto3.Session")
+        self.session_cls = session.start()
+        self.addCleanup(session.stop)
+        self.converse = self.session_cls.return_value.client.return_value.converse
+        sid = self.start()["id"]
         self.session = self.act(sid, "resume")
 
-    def test_ollama_observation_updates_session(self):
-        reply = mock.Mock(status_code=200)
-        reply.json.return_value = {"message": {"role": "assistant", "content": json.dumps(observation())},
-                                   "done": True, "done_reason": "stop"}
-        self.http_post.return_value = reply
+    def test_bedrock_observation_uses_shared_connection(self):
+        self.converse.return_value = {"output": {"message": {"content": [{"text": json.dumps(observation())}]}},
+                                      "stopReason": "end_turn"}
         s = self.observe(self.session).get_json()
         self.assertEqual((s["completion_streak"], s["latest_observation"]["activity"]), (1, "whisking"))
-        args, kwargs = self.http_post.call_args
-        self.assertEqual(args[0], "http://localhost:11434/api/chat")
-        self.assertEqual(kwargs["json"]["model"], "qwen3-vl:8b")
-        self.assertEqual(kwargs["json"]["messages"][1]["images"], [base64.b64encode(FAKE_JPEG).decode()])
+        self.assertEqual(self.converse.call_args.kwargs["modelId"], MODEL)
+        image = self.converse.call_args.kwargs["messages"][0]["content"][0]
+        self.assertEqual(image, {"image": {"format": "jpeg", "source": {"bytes": FAKE_JPEG}}})
+        self.assertEqual(self.session_cls.call_args.kwargs["aws_access_key_id"], "AKIASYNTHETIC0000001")
 
     def test_provider_failure_is_502_sanitized_and_recorded(self):
-        self.http_post.side_effect = requests.ConnectionError("http://internal?token=sk-leak")
+        from botocore.exceptions import EndpointConnectionError
+        self.converse.side_effect = EndpointConnectionError(endpoint_url="http://internal?token=sk-leak")
         before = self.client.get(f"/api/sessions/{self.session['id']}").get_json()
         resp = self.observe(self.session)
         self.assertEqual(resp.status_code, 502)
@@ -566,7 +566,7 @@ class CustomRecipeTests(SousTestCase):
         super().setUp()
         self.contexts = []
         fake = types.ModuleType("providers")
-        fake.analyze = lambda provider, model, jpeg, context: self.contexts.append(context) or observation()
+        fake.analyze = lambda provider, model, jpeg, context, **_: self.contexts.append(context) or observation()
         patcher = mock.patch.dict(sys.modules, {"providers": fake})
         patcher.start()
         self.addCleanup(patcher.stop)

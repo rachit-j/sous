@@ -4,19 +4,19 @@ V2 serves a small trusted group on one private instance. The first visitor on a 
 
 Usernames are case-insensitive, stored lowercase, and contain3–32 ASCII letters, digits, underscores or hyphens. Passwords contain12–1024 characters and are stored using Werkzeug's supported password hashing. Login uses a revocable server-side token with a12-hour lifetime. Login/logout/password changes rotate CSRF state; cookies are HTTP-only and SameSite Lax. Failed logins are throttled.
 
-Each account owns its cooking sessions, preferences, personal recipes and AWS connection. Another account's IDs return the same not-found response as unknown IDs. Shared global recipes are visible to everyone; global editing is an administrator action. Administrators cannot use a special API override to read another user's personal data or credentials.
+Each account owns its cooking sessions, preferences and personal recipes. V3 replaced per-account AWS connections with one shared, administrator-managed connection ([V3](v3.md#shared-aws-connection)). Another account's IDs return the same not-found response as unknown IDs. Shared global recipes are visible to everyone; global editing is an administrator action. Administrators cannot use a special API override to read another user's personal data or credentials.
 
-## AWS vault
+## Shared AWS vault
 
-Your account password and AWS vault passphrase are separate. Initialize your vault in Settings, enter your own AWS connection and select a model. The server stores authenticated ciphertext under users/<server-user-id>/settings.vault in the data volume. The passphrase/key remains in server memory only, never beside ciphertext or in browser storage. Restart/logout locks the vault; unlock again explicitly. Forgotten vault passphrases are not recoverable through a password reset.
+An administrator initializes the shared vault in Settings, enters the instance's AWS connection and selects the shared model. Login passwords and the vault passphrase are separate. The server stores authenticated ciphertext under shared/settings.vault in the data volume. The passphrase/key remains in server memory only, never beside ciphertext or in browser storage. A restart or deploy locks the vault until an administrator unlocks it; logout and password changes do not. Forgotten vault passphrases are not recoverable through a password reset. Non-administrators see only whether the connection is ready, its region and model.
 
-Account-facing cloud calls never fall back to environment AWS keys or another account's connection. Ollama remains an optional instance-local shared service. One conversational voice stream is available instance-wide; busy responses reveal no other cook's identity.
+Cloud calls never fall back to environment AWS keys. All usage is billed to the shared AWS account. Earlier per-account vault files under users/<id>/settings.vault are preserved but never read. One conversational voice stream is available instance-wide; busy responses reveal no other cook's identity.
 
 ## Password changes and resets
 
-Change your password in Settings using the current password. Administrators can reset an account password for the trusted group. Changing/resetting a password revokes affected sessions and locks the vault; it does not rewrite the independent encrypted vault. A stolen old cookie must not become valid after logout/reset.
+Change your password in Settings using the current password. Administrators can reset an account password for the trusted group. Changing/resetting a password revokes affected sessions; it neither locks nor rewrites the shared vault. A stolen old cookie must not become valid after logout/reset.
 
-Vault creation and unlock recheck the sign-in session while holding the database write lock and vault guard. A request revoked by logout or password reset cannot later create or unlock the vault. Key derivation briefly holds that write lock, so other account writes wait during create/unlock.
+Vault creation and unlock recheck the administrator's sign-in session while holding the database write lock and vault guard. A request revoked by logout or password reset cannot later create or unlock the vault. Key derivation briefly holds that write lock, so other account writes wait during create/unlock.
 
 ### Local owner recovery
 

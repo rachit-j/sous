@@ -35,23 +35,17 @@ ACTIONS = (
     "timer_set", "timer_cancel", "timer_ack", "finish", "end",
 )
 RECIPE_ACTIONS = ("next", "back", "correct", "finish", "resume")  # need the session's recipe
-# (id, display name). Ollama is the shared local option (OLLAMA_MODEL default). Cloud providers need
-# the account's own credentials: Bedrock uses the account's vault; OpenAI and Anthropic have no
-# per-account credentials yet and are never configured from shared server environment keys.
-PROVIDERS = (
-    ("ollama", "Ollama (local)"),
-    ("openai", "OpenAI"),
-    ("anthropic", "Anthropic"),
-    ("bedrock", "AWS Bedrock"),
-)
-SHARED_PROVIDERS = ("ollama",)
+# (id, display name). V3: AWS Bedrock only, through one instance-wide connection that an
+# administrator saves in the shared encrypted vault (docs/v3.md). No server-environment credentials.
+PROVIDERS = (("bedrock", "AWS Bedrock"),)
 OWNER_FIELDS = ("user_id", "owner_id", "owner", "user", "username")  # identity comes from login only
 SAMPLE_INTERVAL = 10  # default; users may save 1..MAX_SAMPLE_INTERVAL seconds
 MIN_SAMPLE_INTERVAL, MAX_SAMPLE_INTERVAL = 1, 15
 MAX_SETTINGS_BYTES = 16 * 1024
 DISCOVERY_PATH = "/api/settings/bedrock/models"
-LOCKED_BEDROCK = "Bedrock settings are locked. Unlock them in Settings; manual controls still work."
-NO_BEDROCK = "Save an AWS connection in Settings first; manual controls still work."
+LOCKED_BEDROCK = ("The shared AWS connection is locked. An administrator must unlock it in Settings;"
+                  " manual controls still work.")
+NO_BEDROCK = "An administrator must save the shared AWS connection in Settings; manual controls still work."
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_JPEG_BYTES = 1024 * 1024
 JPEG_PREFIX = "data:image/jpeg;base64,"
@@ -146,8 +140,9 @@ def create_app(test_config=None):
         BEHIND_PROXY=behind_proxy,
         CLOCK=time.time,
         RECIPE_DIR=None,  # None: bundled recipes/ directory
-        # V1 single-user vault path (None: settings.vault next to DATABASE). V2 never reads or writes
-        # it; account vaults live under its directory in users/<id>/settings.vault.
+        # V1 single-user vault path (None: settings.vault next to DATABASE). Never read or written;
+        # V2 per-account vaults (users/<id>/settings.vault) are also left untouched. The V3 shared
+        # vault lives in the same directory at shared/settings.vault.
         SETTINGS_VAULT=None,
         SOCK_SERVER_OPTIONS={"max_message_size": voice.MAX_SOCKET_MESSAGE, "ping_interval": 25},
     )
@@ -163,8 +158,9 @@ def create_app(test_config=None):
     app.extensions["sous_recipes"] = load_recipes(app.config["RECIPE_DIR"])
     legacy_vault = app.config["SETTINGS_VAULT"] or os.path.join(
         os.path.dirname(os.path.abspath(app.config["DATABASE"])), "settings.vault")
-    app.extensions["sous_vaults"] = {"lock": threading.Lock(), "vaults": {},  # all start locked
-                                     "root": os.path.join(os.path.dirname(os.path.abspath(legacy_vault)), "users")}
+    # One shared vault for the instance; starts locked after every restart.
+    app.extensions["sous_vault"] = Vault(os.path.join(os.path.dirname(os.path.abspath(legacy_vault)),
+                                                      "shared", "settings.vault"), app.config["CLOCK"])
     app.extensions["sous_discovery"] = threading.Lock()
     # One voice stream instance-wide for this private release; tests may replace "open_stream".
     app.extensions["sous_voice"] = voice.new_state()
@@ -184,9 +180,9 @@ def create_app(test_config=None):
     app.before_request(require_login)
     app.after_request(security_headers)
     register_routes(app)
-    accounts.register_routes(app, get_db, transaction, json_body,
-                             lambda user_id: lock_user_vault(app, user_id))
-    accounts.register_cli(app, get_db, transaction, lambda user_id: lock_user_vault(app, user_id))
+    # The shared vault is not tied to any login: logout or a password reset never locks it.
+    accounts.register_routes(app, get_db, transaction, json_body, lambda user_id: None)
+    accounts.register_cli(app, get_db, transaction, lambda user_id: None)
     register_settings_routes(app)
     register_library_routes(app)
     register_cooking_routes(app)
@@ -194,23 +190,9 @@ def create_app(test_config=None):
     return app
 
 
-def user_vault(app, user_id):
-    """The account's own vault at <data dir>/users/<id>/settings.vault (server integer id only)."""
-    registry = app.extensions["sous_vaults"]
-    user_id = int(user_id)
-    with registry["lock"]:
-        vault = registry["vaults"].get(user_id)
-        if vault is None:
-            path = os.path.join(registry["root"], str(user_id), "settings.vault")
-            vault = registry["vaults"][user_id] = Vault(path, app.config["CLOCK"])
-        return vault
-
-
-def lock_user_vault(app, user_id):
-    with app.extensions["sous_vaults"]["lock"]:
-        vault = app.extensions["sous_vaults"]["vaults"].get(int(user_id))
-    if vault is not None:
-        vault.lock()
+def shared_vault(app):
+    """The instance's one encrypted AWS vault, managed by administrators and used by every account."""
+    return app.extensions["sous_vault"]
 
 
 def load_secret_key(path):
@@ -509,32 +491,20 @@ def decode_jpeg(image):
 
 
 def provider_catalog(db, user_id):
-    """Providers with configuration state for one account. Bedrock uses only the account's own
-    saved connection: while locked or unsaved it is unconfigured, never the server environment."""
-    defaults = get_defaults(db, user_id)
+    """Bedrock through the shared connection: unconfigured while locked or unsaved, never the
+    server environment. default_model is the administrator's shared model."""
     vault = current_vault()
-    catalog = []
-    for pid, name in PROVIDERS:
-        shared = pid in SHARED_PROVIDERS
-        entry = {"id": pid, "name": name, "configured": shared,
-                 "default_model": os.environ.get("OLLAMA_MODEL", "") if shared else ""}
-        if pid == "bedrock":
-            managed = vault.managed_bedrock
-            locked, conn = vault.state()
-            entry["source"] = "managed" if managed else "none"
-            entry["locked"] = managed and locked
-            entry["configured"] = conn is not None
-            entry["default_model"] = conn["model"] if conn else ""
-        if defaults["provider"] == pid:
-            entry["default_model"] = defaults["model"]
-        catalog.append(entry)
-    return catalog
+    managed = vault.managed_bedrock
+    locked, conn = vault.state()
+    return [{"id": "bedrock", "name": "AWS Bedrock", "source": "managed" if managed else "none",
+             "locked": managed and locked, "configured": conn is not None,
+             "default_model": get_defaults(db, user_id)["model"] or ""}]
 
 
 # --- Settings and preferences ---------------------------------------------
 
 def current_vault():
-    return user_vault(current_app, current_user_id())
+    return shared_vault(current_app)
 
 
 CREDENTIALS_CHANGED = "Settings changed while the model was working; that result was discarded. Try again."
@@ -616,11 +586,10 @@ def voice_json(db, user_id):
 
 
 def get_defaults(db, user_id):
-    value = get_pref(db, user_id, "defaults")
-    known = {p[0] for p in PROVIDERS}
-    if (isinstance(value, dict) and value.get("provider") in known
-            and isinstance(value.get("model"), str) and value["model"]):
-        return {"provider": value["provider"], "model": value["model"]}
+    """The shared Bedrock model from the unlocked shared connection (same for every account)."""
+    _, conn = current_vault().state()
+    if conn and conn.get("model"):
+        return {"provider": "bedrock", "model": conn["model"]}
     return {"provider": None, "model": None}
 
 
@@ -641,8 +610,9 @@ def settings_json(db, user_id):
         conn = conn or {}
         bedrock = {"region": conn.get("region", ""), "model": conn.get("model", ""),
                    "has_credentials": bool(conn), "has_session_token": bool(conn.get("session_token"))}
-    bedrock["source"] = "managed" if managed else "none"  # never the shared server environment
+    bedrock["source"] = "managed" if managed else "none"  # never the server environment
     return {
+        "shared": True, "can_manage": bool(g.user["is_admin"]),
         "vault": {"initialized": vault.initialized, "locked": locked},
         "bedrock": bedrock,
         "defaults": get_defaults(db, user_id),
@@ -940,16 +910,12 @@ def register_routes(app):
             import providers  # P1 hook: providers.analyze(provider, model, jpeg_bytes, context) -> dict
         except ImportError:
             raise ApiError(503, "Visual monitoring is not available yet. Manual controls still work.") from None
-        if row["provider"] not in SHARED_PROVIDERS and row["provider"] != "bedrock":
-            raise ApiError(409, "That provider is not available for your account. Manual controls still work.")
-        # Bedrock always gets the account's own connection explicitly; there is no environment
-        # fallback. Other providers keep the 4-argument call and do not depend on the vault.
-        if row["provider"] == "bedrock":
-            if lease.connection is None:
-                raise ApiError(409, LOCKED_BEDROCK if lease.vault.state()[0] else NO_BEDROCK)
-        else:
-            lease = lease._replace(connection=None)
-        extra = {"bedrock": lease.connection} if lease.connection else {}
+        if row["provider"] != "bedrock":  # e.g. a session started before V3 removed local models
+            raise ApiError(409, "That model provider is no longer available. Manual controls still work.")
+        # Bedrock always gets the shared connection explicitly; there is no environment fallback.
+        if lease.connection is None:
+            raise ApiError(409, LOCKED_BEDROCK if lease.vault.state()[0] else NO_BEDROCK)
+        extra = {"bedrock": lease.connection}
 
         busy = current_app.extensions["sous_observations"]
         with busy["lock"]:
@@ -1027,12 +993,12 @@ def register_settings_routes(app):
         waits for the write lock and locks the vault after this request commits. Key derivation
         runs under both locks, so other database writes wait for one scrypt.
         """
+        user_id, token_hash = accounts.require_admin()
         passphrase = settings_body().get("passphrase")
-        user_id, token_hash = current_user_id(), g.auth_token_hash
         vault = current_vault()
         db = get_db()
         with transaction(db, vault.guard()):
-            accounts.recheck_actor(db, user_id, token_hash)
+            accounts.recheck_actor(db, user_id, token_hash, admin=True)
             change(vault, passphrase)
 
     @app.post("/api/settings/vault")
@@ -1047,11 +1013,13 @@ def register_settings_routes(app):
 
     @app.post("/api/settings/lock")
     def lock_vault():
+        accounts.require_admin()
         current_vault().lock()
         return respond_settings()
 
     @app.put("/api/settings/bedrock")
     def save_bedrock():
+        accounts.require_admin()
         body = settings_body()
         vault = current_vault()
         vault.save_bedrock(merge_bedrock(vault.bedrock(), body))
@@ -1059,6 +1027,7 @@ def register_settings_routes(app):
 
     @app.delete("/api/settings/bedrock")
     def delete_bedrock():
+        accounts.require_admin()
         vault = current_vault()
         vault.bedrock()  # 409 when locked
         vault.save_bedrock(None)
@@ -1066,15 +1035,17 @@ def register_settings_routes(app):
 
     @app.put("/api/settings/defaults")
     def save_defaults():
+        """Sets the shared model everyone uses (stored in the shared connection)."""
+        accounts.require_admin()
         body = settings_body()
-        current_vault().bedrock()  # unlocked vault required
-        provider = body.get("provider")
-        if not isinstance(provider, str) or provider not in {p[0] for p in PROVIDERS}:
+        vault = current_vault()
+        conn = vault.bedrock()  # 409 when locked
+        if body.get("provider") != "bedrock":
             raise ApiError(400, "Unknown provider.")
         model = validate_model_id(body.get("model"), required=True)
-        db = get_db()
-        with transaction(db):
-            set_pref(db, current_user_id(), "defaults", {"provider": provider, "model": model})
+        if conn is None:
+            raise ApiError(409, "Save the shared AWS connection before choosing a model.")
+        vault.save_bedrock({**conn, "model": model})
         return respond_settings()
 
     @app.put("/api/settings/preferences")
@@ -1096,6 +1067,7 @@ def register_settings_routes(app):
 
     @app.get(DISCOVERY_PATH)
     def discover_bedrock_models():
+        accounts.require_admin()
         vault = current_vault()
         vault.bedrock()  # 409 when locked
         connection = vault.connection()
@@ -1199,8 +1171,8 @@ def register_cooking_routes(app):
         return jsonify(session=session_json(db, load_session(db, session_id, user_id)))
 
 
-NO_AI_CONNECTION = "Save your own AWS connection in Settings to use the recipe maker."
-LOCKED_AI = "Unlock your AWS connection in Settings to use the recipe maker."
+NO_AI_CONNECTION = "An administrator must save the shared AWS connection in Settings to use the recipe maker."
+LOCKED_AI = "An administrator must unlock the shared AWS connection in Settings to use the recipe maker."
 
 
 def register_library_routes(app):
@@ -1332,5 +1304,5 @@ def serve_voice(ws, session_id):
         return
     user_id, token_hash, clock = user["id"], g.auth_token_hash, current_app.config["CLOCK"]
     voice.serve(ws, session_id, session.get("csrf_token"), db, get_voice_id(db, user_id),
-                user_vault(current_app, user_id), user_id,
+                shared_vault(current_app), user_id,
                 lambda: accounts.auth_valid(db, user_id, token_hash, clock()))

@@ -158,13 +158,15 @@
     const provider = state.config?.providers?.find((item) => item.id === $("#provider-select").value);
     const model = $("#model-input").value.trim() || provider?.default_model || "model not selected";
     $("#guidance-summary").textContent = provider ? `${provider.name} · ${model}` : "Choose a configured model to guide this recipe.";
-    const defaultProvider = state.config?.providers?.find((item) => item.id === state.config?.defaults?.provider);
-    const unavailableDefault = Boolean(state.config?.defaults?.provider && !defaultProvider?.configured);
-    $("#provider-locked-notice").hidden = !unavailableDefault;
-    if (unavailableDefault) {
-      $("#provider-locked-notice p").textContent = defaultProvider?.id === "bedrock" && defaultProvider.locked
-        ? "Bedrock is the saved default, but its settings are locked. Unlock it to start a session."
-        : `${defaultProvider?.name || "The saved provider"} is not configured. Configure it in Settings or choose a session override.`;
+    const bedrock = state.config?.providers?.find((item) => item.id === "bedrock");
+    const unavailable = Boolean(bedrock && (!bedrock.configured || !bedrock.default_model));
+    $("#provider-locked-notice").hidden = !unavailable;
+    if (unavailable) {
+      $("#provider-locked-text").textContent = bedrock.locked
+        ? "The shared AWS connection is locked after a restart. An administrator must unlock it in Settings to start cooking."
+        : !bedrock.configured
+        ? "The shared AWS connection isn't set up yet. An administrator can add it in Settings."
+        : "No shared model is selected yet. An administrator can choose one in Settings.";
     }
   }
 
@@ -272,13 +274,23 @@
     if (!settings) return;
     const initialized = Boolean(settings.vault.initialized);
     const unlocked = initialized && !settings.vault.locked;
+    const canManage = settings.can_manage !== false;
+    document.querySelectorAll("#settings-panel .admin-only").forEach((node) => { node.hidden = !canManage; });
+    $("#shared-connection-panel").hidden = canManage;
+    const sharedModel = settings.defaults?.model || settings.bedrock?.model || "";
+    $("#shared-connection-status").textContent = !initialized
+      ? "Not set up yet. Ask an administrator to save the shared AWS connection."
+      : !unlocked ? "Locked after a restart. Ask an administrator to unlock it; manual cooking controls still work."
+      : settings.bedrock?.has_credentials ? `Ready${settings.bedrock.region ? ` · ${settings.bedrock.region}` : ""}${sharedModel ? ` · ${sharedModel}` : ""}`
+      : "No connection saved yet. Ask an administrator to add one.";
+    $("#shared-connection-badge").textContent = unlocked && settings.bedrock?.has_credentials ? "Ready" : initialized && !unlocked ? "Locked" : "Not set up";
     $("#vault-init-form").hidden = initialized;
     $("#vault-unlock-form").hidden = !initialized || unlocked;
     $("#vault-locked-controls").hidden = !unlocked;
     $("#vault-lock-button").disabled = !unlocked;
     $("#vault-status").textContent = !initialized
-      ? "Not initialized. Create a passphrase to save Bedrock credentials."
-      : unlocked ? "Unlocked for this server run." : "Locked. Unlock after a restart to use saved Bedrock settings.";
+      ? "Not initialized. Create a passphrase to save the shared Bedrock credentials."
+      : unlocked ? "Unlocked for everyone on this server run." : "Locked. Unlock after a restart or deploy so everyone can use Bedrock.";
 
     const bedrock = settings.bedrock || {};
     const source = bedrock.source || "none";

@@ -151,7 +151,7 @@ def _valid_payload(data):
 # --- Vault ----------------------------------------------------------------
 
 class Vault:
-    """Thread-safe encrypted store. One instance per account (app.user_vault); starts locked."""
+    """Thread-safe encrypted store. One shared instance (app.shared_vault); starts locked."""
 
     def __init__(self, path, clock):
         self.path = path

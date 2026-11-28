@@ -8,7 +8,7 @@ A Flask cooking companion for a small trusted group, with separate accounts and 
 docker compose up --build
 ```
 
-Open http://127.0.0.1:5050 and create the first administrator, then create other accounts in Settings. No host Python or Node setup is needed. Data persists in a named volume. Each user configures their own AWS Bedrock connection and vault passphrase in **Settings**; shared environment cloud keys are not used. Ollama remains an optional shared local service. See [accounts](docs/accounts.md), [secure settings](docs/settings.md) and [Docker setup](docs/docker.md).
+Open http://127.0.0.1:5050 and create the first administrator, then create other accounts in Settings. No host Python or Node setup is needed. Data persists in a named volume. An administrator saves one shared AWS Bedrock connection and vault passphrase in **Settings**, and every account uses it; environment cloud keys are not used. See [accounts](docs/accounts.md), [secure settings](docs/settings.md) and [Docker setup](docs/docker.md).
 
 ## V2 workspace
 
@@ -30,9 +30,9 @@ source .venv/bin/activate
 flask --app app run --debug --host 127.0.0.1 --port 5050
 ```
 
-Open http://127.0.0.1:5050. Port 5050 avoids the macOS AirPlay service commonly using 5000. Configure your Bedrock connection through **Settings**, or run the optional local Ollama service, and allow webcam access when ready. See [provider setup](docs/providers.md).
+Open http://127.0.0.1:5050. Port 5050 avoids the macOS AirPlay service commonly using 5000. As an administrator, save the shared Bedrock connection in **Settings** (and unlock it after each restart), then allow webcam access when ready. See [provider setup](docs/providers.md).
 
-An optional `.env` can configure the local Ollama URL/model and host port. Account users configure AWS through Settings. V1 data stays on disk but is not silently assigned to new accounts; see [migration boundaries](docs/accounts.md#existing-v1-data).
+An optional `.env` can configure the host port. AWS is configured by an administrator in Settings. V1 data stays on disk but is not silently assigned to new accounts; see [migration boundaries](docs/accounts.md#existing-v1-data).
 
 For a standard Python setup, create `.venv` with `python3 -m venv .venv`, activate it, and use `python -m pip install -r requirements.txt`.
 
@@ -54,7 +54,7 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit .venv/bin/python -m playwright install
 TMPDIR=/tmp SOUS_BROWSER_TESTS=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/sous-webkit .venv/bin/python -m unittest tests.test_browser tests.test_browser_settings tests.test_browser_voice tests.test_browser_v2 tests.test_browser_v2_accounts -v
 ```
 
-Add `SOUS_LIVE_OLLAMA=1` and select the optional live test to exercise your existing `qwen3-vl:8b` with generated test frames. The normal browser suite mocks model output and camera permission; it never accesses personal browsers or physical cameras.
+The browser suite mocks model output and camera permission; it never accesses personal browsers or physical cameras.
 
 `SOUS_VOICE_SOCKET_TESTS=1 .venv/bin/python -m unittest tests.test_voice_socket -v` additionally verifies real localhost WebSockets against a synthetic upstream without calling AWS.
 
@@ -72,7 +72,7 @@ The companion offers guidance using recipe state and recent camera evidence; use
 
 Add recipes as JSON data; the bundled scrambled-eggs recipe is just the first example. See [recipe format](docs/recipes.md). Tracking and model prompts use the selected recipe's own instructions and visual cues.
 
-SQLite account/session history, per-user encrypted vaults and the persistent Flask secret live under ignored `instance/`. Images and raw audio are not stored by Sous. AWS receives snapshots when selected. Browser speech recognition may use an external service; it is optional.
+SQLite account/session history, the shared encrypted vault and the persistent Flask secret live under ignored `instance/`. Images and raw audio are not stored by Sous. AWS receives snapshots when selected. Browser speech recognition may use an external service; it is optional.
 
 Bedrock credentials entered in Settings are encrypted using your unlock passphrase; unlock after server restart. The unlock key is held only in server memory. Settings also controls the snapshot interval:10 seconds by default, adjustable from1–15 seconds. Only one analysis runs at a time.
 

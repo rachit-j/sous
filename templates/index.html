@@ -63,19 +63,19 @@
         <div class="setup-options">
           <h2 class="pane-title">Guidance</h2>
           <p class="guidance-summary" id="guidance-summary">Choose a configured model to guide this recipe.</p>
-          <div id="provider-locked-notice" class="settings-callout" hidden role="status"><p>Bedrock is the saved default, but its settings are locked. Unlock it to start a session.</p><button class="button button-secondary button-small" id="settings-unlock-link" type="button">Open Settings</button></div>
+          <div id="provider-locked-notice" class="settings-callout" hidden role="status"><p id="provider-locked-text">The shared AWS connection is locked. An administrator must unlock it before cooking with camera guidance.</p><button class="button button-secondary button-small" id="settings-unlock-link" type="button">Open Settings</button></div>
           <details class="override-details" id="provider-overrides">
-            <summary>Choose a different provider for this session</summary>
+            <summary>Use a different model for this session</summary>
             <div class="override-fields">
               <div class="field">
                 <label for="provider-select">Provider</label>
                 <select id="provider-select" name="provider" required></select>
-                <p class="field-help">Only configured providers can start a session.</p>
+                <p class="field-help">Everyone uses the shared AWS Bedrock connection.</p>
               </div>
               <div class="field">
                 <label for="model-input">Model</label>
                 <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model ID" required>
-                <p class="field-help">Uses the provider’s saved default when one is set.</p>
+                <p class="field-help">Defaults to the shared model chosen by an administrator.</p>
               </div>
             </div>
           </details>
@@ -98,7 +98,7 @@
         <p class="lede">Manage the model Sous uses and how often it checks a still image. Saving credentials does not test AWS access.</p>
       </header>
 
-      <section class="settings-section panel" aria-labelledby="password-heading"><div class="settings-section-head"><div><h2 id="password-heading">Account password</h2><p>Changing your password signs out other sessions and locks your AWS vault.</p></div></div>
+      <section class="settings-section panel" aria-labelledby="password-heading"><div class="settings-section-head"><div><h2 id="password-heading">Account password</h2><p>Changing your password signs out your other sessions.</p></div></div>
         <form id="password-form" class="settings-form"><div class="field"><label for="current-password">Current password</label><input id="current-password" type="password" autocomplete="current-password" required></div><div class="field"><label for="new-password">New password</label><input id="new-password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div><p class="settings-error" id="password-error" role="status" hidden></p><button class="button button-secondary" type="submit">Change password</button></form>
       </section>
 
@@ -110,17 +110,22 @@
         <form id="profile-form" class="settings-form"><div class="field"><label for="profile-pantry">Pantry ingredients</label><textarea id="profile-pantry" rows="3" placeholder="Rice, canned tomatoes, lentils"></textarea></div><div class="field"><label for="profile-equipment">Equipment</label><textarea id="profile-equipment" rows="2" placeholder="Oven, saucepan, blender"></textarea></div><div class="field"><label for="profile-servings">Usual servings</label><input id="profile-servings" type="number" min="1" max="24" step="1" value="2"></div><div class="field"><label for="profile-time">Usual time budget (minutes)</label><input id="profile-time" type="number" min="1" max="1440" step="1" value="30"></div><p class="settings-error" id="profile-error" role="status" hidden></p><button class="button button-secondary" type="submit">Save preferences</button></form>
       </section>
 
-      <section class="settings-section panel" aria-labelledby="vault-heading">
-        <div class="settings-section-head"><div><h2 id="vault-heading">Encrypted settings vault</h2><p id="vault-status" class="settings-status" role="status">Loading vault status…</p></div></div>
+      <section class="settings-section panel" id="shared-connection-panel" aria-labelledby="shared-connection-heading" hidden>
+        <div class="settings-section-head"><div><h2 id="shared-connection-heading">AWS connection</h2><p id="shared-connection-status" class="settings-status" role="status">Loading…</p></div><span class="badge settings-source" id="shared-connection-badge">Shared</span></div>
+        <p class="field-help">Everyone on this instance uses one AWS Bedrock connection managed by an administrator. You don't need your own keys.</p>
+      </section>
+
+      <section class="settings-section panel admin-only" aria-labelledby="vault-heading">
+        <div class="settings-section-head"><div><h2 id="vault-heading">Shared encrypted vault</h2><p id="vault-status" class="settings-status" role="status">Loading vault status…</p></div></div>
         <form id="vault-init-form" class="settings-form vault-form" hidden>
-          <p class="field-help">Create a passphrase with at least 12 characters. You will need it after each server restart; it cannot be recovered.</p>
+          <p class="field-help">Create a passphrase with at least 12 characters. An administrator needs it after each server restart or deploy; it cannot be recovered.</p>
           <div class="field"><label for="vault-init-passphrase">Passphrase</label><input id="vault-init-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div>
           <div class="field"><label for="vault-confirm-passphrase">Confirm passphrase</label><input id="vault-confirm-passphrase" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></div>
           <p class="settings-error" id="vault-init-error" role="status" hidden></p>
           <button class="button button-primary" type="submit">Create vault</button>
         </form>
         <form id="vault-unlock-form" class="settings-form vault-form" hidden>
-          <p class="field-help">Unlock your saved AWS settings for this server run.</p>
+          <p class="field-help">Unlock the shared AWS connection for everyone on this server run.</p>
           <div class="field"><label for="vault-unlock-passphrase">Passphrase</label><input id="vault-unlock-passphrase" type="password" maxlength="1024" autocomplete="current-password" required></div>
           <p class="settings-error" id="vault-unlock-error" role="status" hidden></p>
           <button class="button button-primary" type="submit">Unlock settings</button>
@@ -128,8 +133,8 @@
         <div id="vault-locked-controls" class="settings-actions" hidden><button class="button button-secondary" id="vault-lock-button" type="button">Lock vault</button></div>
       </section>
 
-      <section class="settings-section panel" aria-labelledby="bedrock-heading">
-        <div class="settings-section-head"><div><h2 id="bedrock-heading">AWS Bedrock</h2><p id="bedrock-status" class="settings-status" role="status">No saved connection</p></div><span class="badge settings-source" id="bedrock-source">Not configured</span></div>
+      <section class="settings-section panel admin-only" aria-labelledby="bedrock-heading">
+        <div class="settings-section-head"><div><h2 id="bedrock-heading">Shared AWS Bedrock connection</h2><p id="bedrock-status" class="settings-status" role="status">No saved connection</p></div><span class="badge settings-source" id="bedrock-source">Not configured</span></div>
         <div id="bedrock-locked-callout" class="settings-callout" hidden role="status"><p>Unlock the vault to view or change the saved connection. The credential fields are never returned to this page.</p></div>
         <form id="bedrock-form" class="settings-form" autocomplete="off">
           <div class="field"><label for="bedrock-region">AWS region</label><input id="bedrock-region" name="region" type="text" maxlength="32" placeholder="us-east-1" autocomplete="off" spellcheck="false" required><p class="field-help">Changing region refreshes the available model list.</p></div>
@@ -150,12 +155,12 @@
         <div class="field custom-model-field" id="custom-model-field" hidden><label for="bedrock-model">Model or inference profile ID</label><input id="bedrock-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model or profile ID"><div class="settings-form-actions"><button class="button button-secondary button-small" id="save-model" type="button">Save model ID</button><button class="button button-ghost button-small" id="default-bedrock-model" type="button">Save as Bedrock default</button></div></div>
       </section>
 
-      <section class="settings-section panel" aria-labelledby="defaults-heading">
-        <div class="settings-section-head"><div><h2 id="defaults-heading">Default for new sessions</h2><p>Existing cooking sessions keep their selected provider and model.</p></div></div>
+      <section class="settings-section panel admin-only" aria-labelledby="defaults-heading">
+        <div class="settings-section-head"><div><h2 id="defaults-heading">Shared model</h2><p>Everyone's new cooks and recipe drafts use this model. Existing cooking sessions keep theirs.</p></div></div>
         <form id="defaults-form" class="settings-form defaults-form">
           <div class="field"><label for="default-provider">Provider</label><select id="default-provider" required></select></div>
           <div class="field"><label for="default-model">Model</label><input id="default-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" required></div>
-          <p class="field-help" id="defaults-lock-help" hidden>Unlock the vault to save provider defaults.</p>
+          <p class="field-help" id="defaults-lock-help" hidden>Unlock the vault to choose the shared model.</p>
           <p class="settings-error" id="defaults-error" role="status" hidden></p>
           <button class="button button-primary" id="save-defaults" type="submit">Save default</button>
         </form>
@@ -186,7 +191,7 @@
       <section id="recipe-editor" class="panel editor-panel" hidden aria-labelledby="recipe-editor-title"><div class="panel-head"><div><h2 id="recipe-editor-title">Create recipe</h2><p>Review every instruction before saving.</p></div><button class="button button-ghost button-small" id="close-recipe-editor" type="button">Close</button></div>
         <form id="recipe-form" class="settings-form recipe-form"><input id="edit-recipe-id" type="hidden"><div class="recipe-meta-row"><div class="field"><label for="edit-recipe-name">Name</label><input id="edit-recipe-name" maxlength="120" required></div><div class="field"><label for="edit-recipe-description">Description</label><textarea id="edit-recipe-description" rows="2" maxlength="1000" required></textarea></div></div><div class="form-row recipe-details-row"><div class="field"><label for="edit-servings">Servings</label><input id="edit-servings" type="number" min="1" max="24" step="1" value="2"></div><div class="field"><label for="edit-equipment">Equipment</label><input id="edit-equipment" maxlength="1000" placeholder="Saucepan, oven"></div></div><div class="field recipe-editor-section"><label>Ingredients</label><p class="field-help">Add numeric amounts to adjust servings accurately; leave unknown amounts blank.</p><div id="ingredient-editor" class="ingredient-editor"></div><button class="button button-ghost button-small" id="add-ingredient" type="button">Add ingredient</button></div><div class="field recipe-editor-section"><label>Steps</label><div id="step-editor" class="step-editor"></div><button class="button button-ghost button-small" id="add-recipe-step" type="button">Add step</button></div><label class="check-choice" id="global-recipe-choice" hidden><input id="edit-global" type="checkbox"><span>Share as a global recipe (administrator only)</span></label><p class="settings-error" id="recipe-form-error" role="status" hidden></p><div class="settings-form-actions"><button class="button button-primary" type="submit">Save recipe</button><button class="button button-secondary" id="scale-recipe" type="button" hidden>Make a serving-size draft</button></div></form>
       </section>
-      <section id="generator-panel" class="panel editor-panel" hidden aria-labelledby="generator-title"><div class="panel-head"><div><h2 id="generator-title">Make a recipe with AI</h2><p>Your text is sent using your own unlocked AWS connection and model.</p></div><button class="button button-ghost button-small" id="close-generator" type="button">Close</button></div><p id="generator-connection" class="settings-callout" role="status">Checking your AWS connection…</p><form id="generator-form" class="settings-form"><div class="field"><label for="generate-dish">What would you like to cook?</label><input id="generate-dish" maxlength="200" required></div><div class="field"><label for="generate-ingredients">Ingredients or constraints</label><textarea id="generate-ingredients" rows="3" placeholder="Use what I have, avoid extra shopping"></textarea></div><div class="field"><label for="generate-pantry">Pantry ingredients</label><textarea id="generate-pantry" rows="3"></textarea><p class="field-help">Pantry details are optional. They do not verify allergy safety.</p></div><div class="field"><label for="generate-equipment">Available equipment</label><textarea id="generate-equipment" rows="2"></textarea></div><div class="form-row"><div class="field"><label for="generate-servings">Servings</label><input id="generate-servings" type="number" min="1" max="24" value="2" required></div><div class="field"><label for="generate-time">Time budget (minutes)</label><input id="generate-time" type="number" min="1" max="1440" value="30" required></div></div><p class="settings-error" id="generator-error" role="status" hidden></p><button class="button button-primary" type="submit">Generate editable draft</button></form><div id="draft-warning" class="settings-callout" hidden role="status"></div></section>
+      <section id="generator-panel" class="panel editor-panel" hidden aria-labelledby="generator-title"><div class="panel-head"><div><h2 id="generator-title">Make a recipe with AI</h2><p>Your text is sent to the shared AWS Bedrock model.</p></div><button class="button button-ghost button-small" id="close-generator" type="button">Close</button></div><p id="generator-connection" class="settings-callout" role="status">Checking your AWS connection…</p><form id="generator-form" class="settings-form"><div class="field"><label for="generate-dish">What would you like to cook?</label><input id="generate-dish" maxlength="200" required></div><div class="field"><label for="generate-ingredients">Ingredients or constraints</label><textarea id="generate-ingredients" rows="3" placeholder="Use what I have, avoid extra shopping"></textarea></div><div class="field"><label for="generate-pantry">Pantry ingredients</label><textarea id="generate-pantry" rows="3"></textarea><p class="field-help">Pantry details are optional. They do not verify allergy safety.</p></div><div class="field"><label for="generate-equipment">Available equipment</label><textarea id="generate-equipment" rows="2"></textarea></div><div class="form-row"><div class="field"><label for="generate-servings">Servings</label><input id="generate-servings" type="number" min="1" max="24" value="2" required></div><div class="field"><label for="generate-time">Time budget (minutes)</label><input id="generate-time" type="number" min="1" max="1440" value="30" required></div></div><p class="settings-error" id="generator-error" role="status" hidden></p><button class="button button-primary" type="submit">Generate editable draft</button></form><div id="draft-warning" class="settings-callout" hidden role="status"></div></section>
     </section>
 
     <section id="history-panel" class="v2-panel" hidden aria-labelledby="history-title"><header class="page-header"><div><h1 id="history-title">Cooking history</h1><p class="lede">Your sessions and private notes. Only you can see them.</p></div></header><p id="history-status" class="page-status" role="status"></p><div class="history-layout"><ol id="history-list" class="history-list"></ol><section id="history-detail" class="panel history-detail" hidden><h2 id="history-recipe-name"></h2><p id="history-date"></p><ol id="history-events"></ol><form id="history-note-form" class="settings-form"><label for="history-note">Private note</label><textarea id="history-note" maxlength="4000" rows="5"></textarea><button class="button button-secondary" type="submit">Save note</button><p id="history-note-status" role="status"></p></form></section></div></section>

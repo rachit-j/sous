@@ -33,6 +33,7 @@ from jinja2 import DictLoader
 
 from app import create_app
 from tests.test_accounts import ALICE_PW, BOB_PW, ENV_AWS, Cook
+from tests.support import MODEL, ready_shared_vault
 from tests.test_app import INDEX
 
 CAROL_PW = "carol-login-password-0005"
@@ -174,8 +175,10 @@ class LibraryTestCase(unittest.TestCase):
         return cook.get(f"/api/recipes/{rid}")
 
     def start(self, cook, recipe_id, expect=201):
-        resp = cook.send("POST", "/api/sessions", {"recipe_id": recipe_id, "provider": "ollama",
-                                                   "model": "llava", "mode": "monitoring"})
+        if self.app.extensions["sous_vault"].connection() is None:  # cooking needs the shared connection
+            ready_shared_vault(self.app)
+        resp = cook.send("POST", "/api/sessions", {"recipe_id": recipe_id, "provider": "bedrock",
+                                                   "model": MODEL, "mode": "monitoring"})
         self.assertEqual(resp.status_code, expect, resp.get_json())
         return resp.get_json()
 
@@ -464,7 +467,9 @@ class ScaleTests(LibraryTestCase):
 
 class GenerationTests(LibraryTestCase):
     def ready(self, cook, name, model="conn-model"):
-        self.connect_aws(cook, name, model)
+        """V3: one shared connection. The administrator (alice) saves it; others just use it."""
+        if name == "alice":
+            self.connect_aws(cook, name, model)
         return cook
 
     def test_generation_validates_input_strictly_before_any_aws_call(self):
@@ -487,33 +492,30 @@ class GenerationTests(LibraryTestCase):
         no_pantry = {k: v for k, v in GENERATE.items() if k != "pantry"}  # pantry is optional
         self.assertEqual(alice.send("POST", "/api/recipes/generate", no_pantry).status_code, 200)
 
-    def test_generation_requires_own_unlocked_connection_and_model(self):
+    def test_generation_requires_shared_unlocked_connection_and_model(self):
         with mock.patch.dict(os.environ, ENV_AWS):
             alice, bob = self.pair()
-            self.assertEqual(self.generate(alice).status_code, 409)  # no vault: never the environment
+            for cook in (alice, bob):
+                self.assertEqual(self.generate(cook).status_code, 409)  # no vault: never the environment
             alice.send("POST", "/api/settings/vault", {"passphrase": VAULT_PASS["alice"]})
-            self.assertEqual(self.generate(alice).status_code, 409)  # unlocked but no connection
+            self.assertEqual(self.generate(bob).status_code, 409)  # unlocked but no connection
 
-            self.ready(bob, "bob", model="")
-            put = bob.send("PUT", "/api/settings/defaults", {"provider": "ollama", "model": "llava"})
-            self.assertEqual(put.status_code, 200)
-            self.assertEqual(self.generate(bob).status_code, 409)  # no Bedrock model selected anywhere
-            self.assertEqual(bob.send("POST", "/api/settings/lock", {}).status_code, 200)
-            put = bob.send("POST", "/api/settings/unlock", {"passphrase": VAULT_PASS["bob"]})
-            self.assertEqual(put.status_code, 200)
-            bob.send("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "default-model"})
-            bob.send("POST", "/api/settings/lock", {})
+            key_id, secret = KEYS["alice"]
+            alice.send("PUT", "/api/settings/bedrock", {"region": "us-west-2", "model": "",
+                                                        "access_key_id": key_id, "secret_access_key": secret})
+            self.assertEqual(self.generate(bob).status_code, 409)  # no shared model selected
+            put = bob.send("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "bob-model"})
+            self.assertEqual(put.status_code, 403)  # only administrators choose the shared model
+            alice.send("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "default-model"})
+            alice.send("POST", "/api/settings/lock", {})
             resp = self.generate(bob)
             self.assertEqual(resp.status_code, 409)  # locked
             self.assertIn("error", resp.get_json())
         self.assertEqual((self.converse_calls, self.aws_key_ids()), ([], []))
 
-    def test_generation_uses_callers_credentials_and_model_and_returns_unsaved_draft(self):
+    def test_generation_uses_shared_credentials_and_model_and_returns_unsaved_draft(self):
         alice, bob = self.pair()
         self.ready(alice, "alice", model="conn-model")
-        self.ready(bob, "bob", model="bob-conn-model")
-        bob.send("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "bob-default-model"})
-        alice.send("PUT", "/api/settings/defaults", {"provider": "ollama", "model": "llava"})
         before = (self.ids(alice), self.ids(bob))
 
         self.replies = ["Here is your recipe:\n```json\n" + json.dumps(GENERATED) + "\n```"]
@@ -523,11 +525,12 @@ class GenerationTests(LibraryTestCase):
         self.assert_recipe_fields(data["recipe"], GENERATED)
         self.assertEqual(data["recipe"]["servings"], 2)
         self.assert_warnings(data)  # always asks the cook to review AI output
+        alice.send("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "shared-default-model"})
         resp = self.generate(bob)
         self.assertEqual(resp.status_code, 200, resp.get_json())
 
-        self.assertEqual(self.aws_key_ids(), [KEYS["alice"][0], KEYS["bob"][0]])
-        self.assertEqual([c["modelId"] for c in self.converse_calls], ["conn-model", "bob-default-model"])
+        self.assertEqual(self.aws_key_ids(), [KEYS["alice"][0], KEYS["alice"][0]])
+        self.assertEqual([c["modelId"] for c in self.converse_calls], ["conn-model", "shared-default-model"])
         prompt = json.dumps(self.converse_calls[0]["messages"])
         for item in ("tomato toast", "bread", "salt", "toaster"):
             self.assertIn(item, prompt)  # explicit inputs, including the submitted pantry

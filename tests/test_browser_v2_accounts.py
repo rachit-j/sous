@@ -23,14 +23,16 @@ class SousV2AccountBrowserTests(unittest.TestCase):
 
     def setUp(self):
         from app import create_app
+from tests.support import ready_shared_vault
         from werkzeug.serving import make_server
 
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-v2-accounts-", dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-v2-accounts-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         recipe_dir = Path(self.temp.name) / "recipes"
         recipe_dir.mkdir()
         shutil.copyfile(Path(__file__).resolve().parents[1] / "recipes" / "00-scrambled-eggs.json", recipe_dir / "00-scrambled-eggs.json")
         self.app = create_app({"TESTING": True, "DATABASE": os.path.join(self.temp.name, "accounts.sqlite3"), "SECRET_KEY": "synthetic-account-browser-key", "RECIPE_DIR": str(recipe_dir)})
+        ready_shared_vault(self.app)  # V3: one synthetic shared Bedrock connection
         self.server = make_server("127.0.0.1", 0, self.app, threaded=True)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
@@ -91,10 +93,6 @@ class SousV2AccountBrowserTests(unittest.TestCase):
             self.page.get_by_text("Saved. New checks use this interval.").wait_for()
             self.page.locator("#nav-cooking").click()
             self.page.locator("#setup-panel").wait_for(state="visible")
-        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
-            self.page.locator("#provider-overrides > summary").click()
-        self.page.locator("#provider-select").select_option("ollama")
-        self.page.locator("#model-input").fill("synthetic-no-call")
         self.page.locator("#start-session").click()
         self.page.locator("#session-panel").wait_for(state="visible")
         self.page.locator("#camera-toggle").click()
@@ -182,10 +180,6 @@ class SousV2AccountBrowserTests(unittest.TestCase):
         card = self.page.locator(".recipe-entry").filter(has_text="Measured rice").filter(has_text="serves 4")
         card.get_by_role("button", name="Cook this").click()
         self.page.locator("#setup-panel").wait_for(state="visible")
-        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
-            self.page.locator("#provider-overrides > summary").click()
-        self.page.locator("#provider-select").select_option("ollama")
-        self.page.locator("#model-input").fill("synthetic-no-call")
         self.page.locator("#start-session").click()
         self.page.locator("#session-panel").wait_for(state="visible")
         session = self.page.request.get(f"{origin}/api/sessions/active").json()["session"]
@@ -298,10 +292,6 @@ class SousV2AccountBrowserTests(unittest.TestCase):
     def test_real_cooking_tools_advisory_and_history_persist(self):
         expect = self.expect
         self.create_first_admin()
-        if not self.page.locator("#provider-overrides").evaluate("element => element.open"):
-            self.page.locator("#provider-overrides > summary").click()
-        self.page.locator("#provider-select").select_option("ollama")
-        self.page.locator("#model-input").fill("synthetic-no-call")
         self.page.locator("#start-session").click()
         expect(self.page.locator("#session-panel")).to_be_visible()
 

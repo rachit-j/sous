@@ -27,13 +27,10 @@ class PasswordRecoveryTests(AccountTestCase):
         with closing(sqlite3.connect(self.db_path)) as db:
             return db.execute("SELECT password_hash FROM users WHERE username = ?", (username,)).fetchone()[0]
 
-    def test_resets_one_user_revokes_logins_and_locks_vault(self):
+    def test_resets_one_user_revokes_logins_and_keeps_shared_vault(self):
         alice, bob = self.pair()
-        bob_id = bob.user["id"]
         bob2 = self.login("bob", BOB_PW)
-        self.init_vault(bob, BOB_VAULT)  # unlocked in this process
-        self.save_bedrock(bob, BOB_KEY, BOB_SECRET)
-        vault_path = os.path.join(self.tmp.name, "users", str(bob_id), "settings.vault")
+        vault_path = os.path.join(self.tmp.name, "shared", "settings.vault")
         with open(vault_path, "rb") as fh:
             ciphertext = fh.read()
         alice_hash = self.hash_of("alice")
@@ -54,13 +51,11 @@ class PasswordRecoveryTests(AccountTestCase):
             self.assertEqual(stale.get("/api/settings").status_code, 401)
         self.login("bob", BOB_PW, expect=401)
         bob3 = self.login("bob", password)  # the file's password works through the real login API
-        vault = self.app.extensions["sous_vaults"]["vaults"][bob_id]
-        self.assertTrue(vault.locked)
+        # The shared vault belongs to no login: a reset neither locks nor rewrites it.
+        self.assertFalse(self.app.extensions["sous_vault"].locked)
         with open(vault_path, "rb") as fh:
             self.assertEqual(fh.read(), ciphertext)
-        self.assertEqual(self.settings(bob3)["vault"], {"initialized": True, "locked": True})
-        resp = bob3.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT})
-        self.assertEqual(resp.status_code, 200, resp.get_json())
+        self.assertEqual(self.settings(bob3)["vault"], {"initialized": True, "locked": False})
         self.assertTrue(self.settings(bob3)["bedrock"]["has_credentials"])
 
         self.assertEqual(self.hash_of("alice"), alice_hash)  # other account untouched

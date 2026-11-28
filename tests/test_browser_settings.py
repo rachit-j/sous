@@ -18,6 +18,8 @@ from werkzeug.serving import make_server
 import providers
 from app import create_app
 
+ARTIFACTS = os.environ.get("SOUS_ARTIFACTS", os.path.join(tempfile.gettempdir(), "sous-webkit-artifacts"))
+
 
 PASSPHRASE = "synthetic kitchen vault phrase"
 ACCESS_KEY = "AKIA1234567890TEST"
@@ -40,8 +42,8 @@ class SettingsBrowserTests(unittest.TestCase):
         cls.sync_playwright = staticmethod(sync_playwright)
 
     def setUp(self):
-        Path("/private/tmp/sous-webkit-artifacts").mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-settings-browser-", dir="/tmp")
+        Path(ARTIFACTS).mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-settings-browser-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         recipes = Path(self.temp.name) / "recipes"
         recipes.mkdir()
@@ -173,9 +175,9 @@ class SettingsBrowserTests(unittest.TestCase):
         config = page.evaluate("async () => (await fetch('/api/config')).json()")
         self.assertEqual(config["sample_interval"], 1)
 
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/settings-desktop.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/settings-desktop.png", full_page=True)
         page.set_viewport_size({"width": 390, "height": 844})
-        page.screenshot(path="/private/tmp/sous-webkit-artifacts/settings-mobile.png", full_page=True)
+        page.screenshot(path=ARTIFACTS + "/settings-mobile.png", full_page=True)
         self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 390)
 
         page.locator("#vault-lock-button").click()
@@ -271,7 +273,7 @@ class SettingsBrowserTests(unittest.TestCase):
         page.locator("#start-session").click()
         page.locator("#session-panel").wait_for(state="visible")
         active_before = page.evaluate("async () => (await (await fetch('/api/sessions/active')).json()).session")
-        self.assertEqual(active_before["provider"], "ollama")
+        self.assertEqual(active_before["provider"], "bedrock")
         self.assertEqual(active_before["model"], "old-manual-model")
         self.assertEqual(active_before["recipe"]["id"], "desk-demo")
 
@@ -283,7 +285,7 @@ class SettingsBrowserTests(unittest.TestCase):
         page.locator("#nav-cooking").click()
         active_after = page.evaluate("async () => (await (await fetch('/api/sessions/active')).json()).session")
         self.assertEqual((active_after["id"], active_after["provider"], active_after["model"]),
-                         (active_before["id"], "ollama", "old-manual-model"))
+                         (active_before["id"], "bedrock", "old-manual-model"))
 
         page.locator("#end-session").click()
         page.locator("#completion-panel").wait_for(state="visible")

@@ -29,6 +29,6 @@ EXPOSE 5000
 # throttle and the voice stream limits are process-local. Threads handle concurrent requests; a voice WebSocket
 # holds one thread for its lifetime (at most 1 active + 2 authenticating), so 8 leaves room for
 # normal requests. --timeout is gunicorn's worker heartbeat timeout, not a per-request limit;
-# 210 s is above the 180 s local-model read timeout.
+# 210 s leaves room for slow Bedrock calls and long-lived voice sockets.
 # --graceful-timeout lets in-flight requests finish on shutdown/restart.
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--worker-class", "gthread", "--threads", "8", "--timeout", "210", "--graceful-timeout", "210", "app:create_app()"]

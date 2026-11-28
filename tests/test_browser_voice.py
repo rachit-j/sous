@@ -16,6 +16,8 @@ from werkzeug.serving import make_server
 
 from app import create_app
 
+ARTIFACTS = os.environ.get("SOUS_ARTIFACTS", os.path.join(tempfile.gettempdir(), "sous-webkit-artifacts"))
+
 
 class VoiceBrowserTests(unittest.TestCase):
     @classmethod
@@ -33,8 +35,8 @@ class VoiceBrowserTests(unittest.TestCase):
         cls.sync_playwright = staticmethod(sync_playwright)
 
     def setUp(self):
-        Path("/private/tmp/sous-webkit-artifacts").mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-voice-browser-", dir="/tmp")
+        Path(ARTIFACTS).mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-voice-browser-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         recipes = Path(self.temp.name) / "recipes"
         recipes.mkdir()
@@ -357,7 +359,7 @@ class VoiceBrowserTests(unittest.TestCase):
         }""")
         self.assertEqual(self.page.evaluate("window.scrollY"), 0)
         self.assertLessEqual(abs(self.page.locator(".cook-column").evaluate("element => element.getBoundingClientRect().top") - self.page.locator(".workspace").evaluate("element => element.getBoundingClientRect().top")), 1)
-        self.page.screenshot(path="/private/tmp/sous-webkit-artifacts/voice-companion-mobile.png", full_page=True)
+        self.page.screenshot(path=ARTIFACTS + "/voice-companion-mobile.png", full_page=True)
         bounds = self.page.locator("#voice-panel").evaluate("element => ({left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right})")
         viewport_width = self.page.evaluate("window.innerWidth")
         self.assertGreaterEqual(bounds["left"], 0)
@@ -370,7 +372,7 @@ class VoiceBrowserTests(unittest.TestCase):
         }""")
         self.assertEqual(self.page.evaluate("window.scrollY"), 0)
         self.assertLessEqual(abs(self.page.locator(".cook-column").evaluate("element => element.getBoundingClientRect().top") - self.page.locator(".workspace").evaluate("element => element.getBoundingClientRect().top")), 1)
-        self.page.screenshot(path="/private/tmp/sous-webkit-artifacts/voice-companion-desktop.png", full_page=True)
+        self.page.screenshot(path=ARTIFACTS + "/voice-companion-desktop.png", full_page=True)
         self.assertEqual(self.page_errors, [])
 
 

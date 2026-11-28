@@ -9,7 +9,7 @@ from unittest import mock
 
 from botocore.exceptions import ClientError
 
-from app import user_vault
+from app import shared_vault
 from settings import BAD_UNLOCK, BedrockConnection, SettingsError, merge_bedrock
 from tests.test_app import SousTestCase, observation
 
@@ -33,6 +33,8 @@ class LogCapture(logging.Handler):
 
 
 class SettingsTestCase(SousTestCase):
+    shared_connection = False  # these tests set the shared vault up through the API
+
     def setUp(self):
         super().setUp()
         self.vault_path = self.vault().path  # the signed-in fixture account's own vault file
@@ -69,7 +71,7 @@ class SettingsTestCase(SousTestCase):
         self.client, self.token = self.browser(self.app)
 
     def vault(self):
-        return user_vault(self.app, self.user_id)
+        return shared_vault(self.app)
 
     def assert_no_secrets(self, text):
         for value in SENTINELS:
@@ -80,13 +82,14 @@ class VaultTests(SettingsTestCase):
     def test_initial_settings_are_locked_with_defaults(self):
         data = self.settings()
         self.assertEqual(data, {
+            "shared": True, "can_manage": True,
             "vault": {"initialized": False, "locked": True},
             "bedrock": {"region": None, "model": None, "has_credentials": None, "has_session_token": None,
                         "source": data["bedrock"]["source"]},
             "defaults": {"provider": None, "model": None},
             "sample_interval": 10,
             "voice": {"model": "amazon.nova-2-sonic-v1:0", "voice_id": "tiffany", "available": False,
-                      "reason": "Save an AWS connection in Settings to use voice."},
+                      "reason": "An administrator must save the shared AWS connection in Settings to use voice."},
         })
         self.assertFalse(os.path.exists(self.vault_path))
 
@@ -111,7 +114,7 @@ class VaultTests(SettingsTestCase):
         self.assertEqual(set(json.loads(stored)), {"version", "kdf", "salt", "token"})
         self.assertEqual(stat.S_IMODE(os.stat(self.vault_path).st_mode), 0o600)
         vault_dir = os.path.dirname(self.vault_path)
-        self.assertEqual(vault_dir, os.path.join(self.tmp.name, "users", str(self.user_id)))
+        self.assertEqual(vault_dir, os.path.join(self.tmp.name, "shared"))  # one vault for the instance
         self.assertEqual(stat.S_IMODE(os.stat(vault_dir).st_mode) & 0o077, 0)  # no group/other access
         self.assertEqual([f for f in os.listdir(vault_dir) if f.endswith(".tmp")], [])
         self.assertFalse(os.path.exists(self.legacy_vault_path))
@@ -290,24 +293,23 @@ class PreferenceTests(SettingsTestCase):
         self.assertEqual(self.settings()["sample_interval"], 7)
         self.assertEqual(self.client.get("/api/config").get_json()["sample_interval"], 7)
 
-    def test_defaults_require_unlock_and_do_not_change_sessions(self):
-        session = self.start()
-        body = {"provider": "openai", "model": "gpt-x"}
+    def test_shared_model_requires_admin_unlock_and_does_not_change_sessions(self):
+        body = {"provider": "bedrock", "model": "amazon.nova-pro-v1:0"}
         self.assertEqual(self.send("PUT", "/api/settings/defaults", body).status_code, 409)  # no vault
         self.init_vault()
-        for bad in ({"provider": "mystery"}, {"provider": ["openai"]}, {"model": ""}, {"model": None},
-                    {"model": 5}, {"model": "x" * 201}):
+        self.assertEqual(self.send("PUT", "/api/settings/defaults", body).status_code, 409)  # no connection
+        self.save_bedrock(model="amazon.nova-lite-v1:0")
+        session = self.start(model="amazon.nova-lite-v1:0")
+        for bad in ({"provider": "mystery"}, {"provider": "openai"}, {"provider": ["bedrock"]}, {"model": ""},
+                    {"model": None}, {"model": 5}, {"model": "x" * 201}):
             self.assertEqual(self.send("PUT", "/api/settings/defaults", {**body, **bad}).status_code, 400, bad)
         data = self.send("PUT", "/api/settings/defaults", body).get_json()
-        self.assertEqual(data["defaults"], body)
+        self.assertEqual((data["defaults"], data["bedrock"]["model"]), (body, body["model"]))
         config = self.client.get("/api/config").get_json()
         self.assertEqual(config["defaults"], body)
-        self.assertEqual(next(p for p in config["providers"] if p["id"] == "openai")["default_model"], "gpt-x")
-        self.assertEqual(self.client.get(f"/api/sessions/{session['id']}").get_json()["model"], "llava")
-
-        self.restart()  # locked, but nonsecret defaults stay readable
-        self.assertEqual(self.settings()["defaults"], body)
-        self.assertEqual(self.client.get("/api/config").get_json()["defaults"], body)
+        self.assertEqual(config["providers"][0]["default_model"], body["model"])
+        self.assertEqual(self.client.get(f"/api/sessions/{session['id']}").get_json()["model"],
+                         "amazon.nova-lite-v1:0")
 
 
 def converse_reply():
@@ -409,15 +411,6 @@ class ManagedBedrockTests(SettingsTestCase):
         self.assertEqual(self.post("/api/sessions", {"recipe_id": "scrambled-eggs", "provider": "bedrock",
                                                      "model": "vision-model", "mode": "monitoring"}).status_code, 409)
         self.session_cls.assert_not_called()
-
-    def test_other_providers_keep_four_argument_analyze(self):
-        calls = []
-        fake = types.ModuleType("providers")
-        fake.analyze = lambda provider, model, jpeg, context: calls.append(provider) or observation()
-        with mock.patch.dict(sys.modules, {"providers": fake}):
-            session = self.act(self.start()["id"], "resume")
-            self.assertEqual(self.observe(session).status_code, 200)
-        self.assertEqual(calls, ["ollama"])
 
     def test_deleted_connection_never_uses_environment_credentials(self):
         session = self.act(self.start(provider="bedrock", model="vision-model")["id"], "resume")

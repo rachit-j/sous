@@ -78,7 +78,7 @@ class VoiceSocketIntegrationTests(unittest.TestCase):
             raise unittest.SkipTest("Set SOUS_VOICE_SOCKET_TESTS=1 to enable localhost WebSocket integration.")
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-voice-socket-", dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-voice-socket-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         self.app = create_app({
             "TESTING": True,
@@ -114,7 +114,7 @@ class VoiceSocketIntegrationTests(unittest.TestCase):
             "secret_access_key": "synthetic-secret-access-key", "session_token": "",
         })
         self.session = self.request("POST", "/api/sessions", {
-            "recipe_id": "scrambled-eggs", "provider": "ollama", "model": "synthetic-model", "mode": "monitoring",
+            "recipe_id": "scrambled-eggs", "provider": "bedrock", "model": "synthetic-model", "mode": "monitoring",
         })
 
     def _stop_server(self):

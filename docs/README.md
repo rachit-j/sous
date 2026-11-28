@@ -2,6 +2,7 @@
 
 Stable Markdown documents and relative links are the source of truth for future graphing.
 
+- [V3 feature list](v3.md): final-version features from midterm feedback, evaluation scope and production hardening.
 - [V2 specification](v2.md): private multi-user accounts, per-user AWS, recipe generation and cooking tools; native iOS/TestFlight deferred.
 - [V2 API contracts](v2-api.md): authentication, ownership, recipes and cooking-tool interfaces.
 - [Cooking tools](cooking-tools.md): named timers, preparation, private notes and advisory monitoring.

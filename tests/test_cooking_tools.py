@@ -15,6 +15,7 @@ import providers
 from jinja2 import DictLoader
 
 from app import create_app
+from tests.support import ready_shared_vault
 from tests.test_accounts import AccountTestCase, ALICE_PW, BOB_PW
 
 
@@ -45,6 +46,7 @@ class CookingToolsTests(AccountTestCase):
             raise AssertionError("voice upstream must not open in cooking-tool tests")
 
         app.extensions["sous_voice"]["open_stream"] = deny_voice
+        ready_shared_vault(app)
         return app
 
     def start_tools_session(self, cook, **fields):

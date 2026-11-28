@@ -2,7 +2,9 @@
 
 ## Scope
 
-Each V2 account has its own Settings view for AWS Bedrock keys, region, model, defaults and snapshot interval. Interval defaults to10 seconds, accepts integer seconds1–15, and never permits overlapping analyses. Unlock with a separate vault passphrase after restart. No .env edits or host credential reads are needed. See [accounts](accounts.md).
+V3: one shared encrypted vault holds the instance's AWS Bedrock connection and shared model ([V3](v3.md#shared-aws-connection)). Only administrators can create, unlock, lock or change it, choose the shared model, or list models; every other settings write is 403 for non-administrators. Each account keeps its own snapshot interval and voice preference. Interval defaults to10 seconds, accepts integer seconds1–15, and never permits overlapping analyses. An administrator unlocks with the vault passphrase after each restart; logout and password changes do not lock it. No .env edits or host credential reads are needed. See [accounts](accounts.md).
+
+The sections below describe the V2 contract. Where they say "account" or "user" vault, read the shared vault; the V3 differences are listed under [Implemented API details](#implemented-api-details).
 
 ## Security contract
 
@@ -30,17 +32,17 @@ All mutations require existing origin/CSRF protection. Settings responses use Ca
 
 Backend implementation in `settings.py` (vault) and `app.py` (routes). These refine the contract above:
 
-- Storage: `users/<server-user-id>/settings.vault` beneath the data directory. Scrypt (n=2^15, r=8, p=1,16-byte salt) derives a Fernet key for the authenticated ciphertext. Writes are atomic with mode0600; user directories are0700. Legacy source markers are ignored. Defaults and interval live in SQLite `user_settings`, keyed by account. The old instance-wide vault/settings remain unclaimed and unread.
+- V3 storage: `shared/settings.vault` beneath the data directory (V2 `users/<id>/settings.vault` files are left untouched and unread). Scrypt (n=2^15, r=8, p=1,16-byte salt) derives a Fernet key for the authenticated ciphertext. Writes are atomic with mode0600; user directories are0700. Legacy source markers are ignored. Defaults and interval live in SQLite `user_settings`, keyed by account. The old instance-wide vault/settings remain unclaimed and unread.
 - Every settings response is the settings view below with `Cache-Control: no-store`. All responses also send `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`; `/api/config` is also no-store. Settings request bodies are limited to 16 KiB (413).
-- GET /api/settings: `{vault:{initialized,locked},bedrock:{region,model,has_credentials,has_session_token,source},defaults:{provider,model},sample_interval}`. Locked credential fields are null. Source is managed for an initialized locked vault or unlocked saved connection, otherwise none. Defaults remain readable while locked.
+- GET /api/settings: `{shared:true,can_manage,vault:{initialized,locked},bedrock:{region,model,has_credentials,has_session_token,source},defaults:{provider,model},sample_interval,voice}`. `can_manage` is true for administrators. Locked credential fields are null. Source is managed for an initialized locked vault or unlocked saved connection, otherwise none. V3 defaults are the shared connection's model, so they read as null while locked.
 - POST /api/settings/vault returns 201 and the unlocked view; 409 if already set up; 400 for passphrases outside 12–1024 characters.
 - POST /api/settings/unlock: 409 when not set up; 403 `Incorrect passphrase or damaged settings data.` for wrong passphrase or tampered/damaged file; 429 after 5 failures within 60 seconds (the correct passphrase also waits). POST /api/settings/lock is idempotent.
 - PUT /api/settings/bedrock: values are trimmed. `region` must look like `us-east-1` (≤32 chars). `access_key_id` 16–128 uppercase letters/digits; `secret_access_key` ≤256 and `session_token` ≤8192 printable non-space ASCII. Omitting `model` keeps the saved model; `""` clears it; otherwise ≤200 chars of `A-Z a-z 0-9 . _ : / -`. Supplying a new key pair drops a previously saved session token unless a new token is sent with it. `session_token` together with `clear_session_token: true` is 400. Locked/uninitialized: 409.
-- PUT /api/settings/defaults: `provider` must be a known provider id (ollama, openai, anthropic, bedrock); `model` uses the model ID rule above. Locked/uninitialized: 409. Readable while locked afterwards.
+- PUT /api/settings/defaults (administrators): `provider` must be `bedrock`; `model` uses the model ID rule above and is saved as the shared connection's model. Locked, uninitialized or no saved connection: 409.
 - PUT /api/settings/preferences: `sample_interval` must be a JSON integer (not boolean/float) 1–15; otherwise 400.
 - GET /api/settings/bedrock/models additionally requires the `X-CSRF-Token` header (it triggers an outbound AWS call). 409 when locked, when no connection is saved, or while another discovery runs. `kind` is `"foundation_model"` or `"inference_profile"`. Foundation models are listed only when they support on-demand invocation; image models offered only through inference profiles appear via their profiles. System-defined profiles use the profile ID, application profiles use the profile ARN. Results are sorted foundation models first, then by name. Profile listing failure or more than 20 pages yields a partial list with `warning`; foundation listing failure is 502 with a sanitized message suggesting a manual model ID.
-- GET /api/config returns the current account's defaults and sample_interval. Bedrock is configured only with an unlocked saved connection. OpenAI/Anthropic adapters remain in source but shared cloud environment keys are not exposed to account users. Ollama remains the shared local option.
-- Sessions and observations with missing/locked Bedrock connections fail without calling AWS. Unlocked calls pass the account's connection explicitly to providers.analyze. Session ownership, live login and vault validity are rechecked around slow inference. Manual actions remain available.
+- GET /api/config returns the shared defaults and the account's sample_interval. Bedrock (the only provider) is configured only with an unlocked saved shared connection.
+- Sessions and observations with missing/locked Bedrock connections fail without calling AWS. Unlocked calls pass the shared connection explicitly to providers.analyze. Session ownership, live login and vault validity are rechecked around slow inference; an administrator locking or changing the vault discards every account's in-flight result. Manual actions remain available.
 
 ## UI contract
 

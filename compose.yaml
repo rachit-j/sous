@@ -8,13 +8,8 @@ services:
       - "127.0.0.1:${SOUS_PORT:-5050}:5000"
     volumes:
       - sous-instance:/app/instance
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    # Lets in-flight analysis finish (gunicorn graceful timeout is 210 s; local read timeout is 180 s).
+    # Lets in-flight analysis finish (gunicorn graceful timeout is 210 s).
     stop_grace_period: 220s
-    environment:
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3-vl:8b}
 
 volumes:
   sous-instance:

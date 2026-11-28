@@ -32,6 +32,7 @@ import accounts
 import app as sous_app
 from app import create_app
 from settings import Vault
+from tests.support import CONNECTION, MODEL, ready_shared_vault
 from tests.test_app import FAKE_JPEG, INDEX, LEGACY_SCHEMA, data_url, observation
 
 ALICE_PW = "alice-login-password-0001"
@@ -102,6 +103,8 @@ class AccountTestCase(unittest.TestCase):
             self.voice_opens.append(connection)
             raise AssertionError("voice upstream must not open in these tests")
         app.extensions["sous_voice"]["open_stream"] = deny_voice
+        if getattr(self, "shared_connection", True):
+            ready_shared_vault(app)
         return app
 
     def fake_analyze(self, provider, model, jpeg, context, **extra):
@@ -152,7 +155,7 @@ class AccountTestCase(unittest.TestCase):
 
     def start_body(self, cook, **body):
         recipe_id = cook.get("/api/config").get_json()["recipes"][0]["id"]
-        return {"recipe_id": recipe_id, "provider": "ollama", "model": "llava", "mode": "monitoring", **body}
+        return {"recipe_id": recipe_id, "provider": "bedrock", "model": MODEL, "mode": "monitoring", **body}
 
     def start(self, cook, expect=201, **body):
         resp = cook.send("POST", "/api/sessions", self.start_body(cook, **body))
@@ -350,7 +353,7 @@ class AccountAdministrationTests(AccountTestCase):
         self.login("alice", ALICE_PW)
         self.login("carol", NEW_PW, expect=401)
 
-    def test_password_changes_revoke_sessions_and_lock_vault(self):
+    def test_password_changes_revoke_sessions_and_keep_shared_vault(self):
         alice, bob = self.pair()
         bob_id = bob.user["id"]
         resp = bob.send("POST", "/api/auth/password", {"current_password": "not-bobs-password", "new_password": NEW_PW})
@@ -362,7 +365,6 @@ class AccountAdministrationTests(AccountTestCase):
         self.assertNotIn(NEW_PW, resp.get_data(as_text=True))
         self.login("bob", BOB_PW, expect=401)
         bob2 = self.login("bob", NEW_PW)
-        self.init_vault(bob2, BOB_VAULT)  # unlocked
 
         reset = f"/api/users/{bob_id}/password"
         self.assertEqual(alice.send("PUT", reset, {"password": BOB_PW}, token="wrong").status_code, 403)
@@ -375,14 +377,14 @@ class AccountAdministrationTests(AccountTestCase):
             self.assertEqual(stale.get("/api/settings").status_code, 401)
         self.login("bob", NEW_PW, expect=401)
         bob3 = self.login("bob", BOB_PW)
-        self.assertEqual(self.settings(bob3)["vault"], {"initialized": True, "locked": True})
-        # The vault passphrase is separate from the login password.
-        self.assertEqual(bob3.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT}).status_code, 200)
+        # The shared vault is not tied to any login: password changes and resets leave it unlocked.
+        self.assertEqual(self.settings(bob3)["vault"], {"initialized": True, "locked": False})
+        self.assertTrue(self.bedrock_entry(bob3)["configured"])
         self.settings(alice)  # the administrator's own login is unaffected
 
 
 class IsolationTests(AccountTestCase):
-    def test_each_user_has_own_active_session_preferences_and_vault(self):
+    def test_each_user_has_own_active_session_and_preferences_but_one_shared_connection(self):
         alice, bob = self.pair()
         a, b = self.start(alice), self.start(bob)  # one active session per user, not per instance
         self.assertNotEqual(a["id"], b["id"])
@@ -397,25 +399,39 @@ class IsolationTests(AccountTestCase):
                          ("matthew", "tiffany"))
         self.assertEqual(bob.get("/api/config").get_json()["sample_interval"], 12)
 
-        self.init_vault(alice, ALICE_VAULT)
-        self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
-        self.assertEqual(self.settings(bob)["vault"], {"initialized": False, "locked": True})
-        self.assertFalse(self.bedrock_entry(bob)["configured"])
-        self.init_vault(bob, BOB_VAULT)  # not 409: Bob's vault is separate
-        self.assertFalse(self.settings(bob)["bedrock"]["has_credentials"])
-        self.assertTrue(self.settings(alice)["bedrock"]["has_credentials"])
-
-        for cook, foreign in ((alice, BOB_VAULT), (bob, ALICE_VAULT)):
-            self.assertEqual(cook.send("POST", "/api/settings/lock", {}).status_code, 200)
-            resp = cook.send("POST", "/api/settings/unlock", {"passphrase": foreign})
-            self.assertEqual(resp.status_code, 403)
-        self.assertEqual(alice.send("POST", "/api/settings/unlock", {"passphrase": ALICE_VAULT}).status_code, 200)
-        self.assertTrue(self.settings(alice)["bedrock"]["has_credentials"])
-        self.assertTrue(self.settings(bob)["vault"]["locked"])
-        self.assertFalse(os.path.exists(self.legacy_vault))  # per-user vaults never use the V1 file
+        # Both accounts see the same administrator-managed connection, without secrets.
+        sa, sb = self.settings(alice), self.settings(bob)
+        self.assertEqual((sa["can_manage"], sb["can_manage"]), (True, False))
+        self.assertEqual(sa["bedrock"], sb["bedrock"])
+        self.assertEqual(sb["vault"], {"initialized": True, "locked": False})
+        self.assertTrue(self.bedrock_entry(bob)["configured"])
+        for secret in (CONNECTION["access_key_id"], CONNECTION["secret_access_key"]):
+            self.assertNotIn(secret, bob.get("/api/settings").get_data(as_text=True))
+        self.assertFalse(os.path.exists(self.legacy_vault))  # the shared vault never uses the V1 file
 
         self.act(alice, a["id"], "end")
         self.assertEqual(self.active_id(bob), b["id"])
+
+    def test_only_administrators_manage_the_shared_connection(self):
+        alice, bob = self.pair()
+        before = self.settings(alice)
+        managed = (("POST", "/api/settings/vault", {"passphrase": BOB_VAULT}),
+                   ("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT}),
+                   ("POST", "/api/settings/lock", {}),
+                   ("PUT", "/api/settings/bedrock", {"region": "us-west-2", "access_key_id": BOB_KEY,
+                                                     "secret_access_key": BOB_SECRET}),
+                   ("DELETE", "/api/settings/bedrock", None),
+                   ("PUT", "/api/settings/defaults", {"provider": "bedrock", "model": "bob-model"}),
+                   ("GET", DISCOVERY, None))
+        for method, path, body in managed:
+            resp = bob.send(method, path, body)
+            self.assertEqual(resp.status_code, 403, (method, path))
+        self.assertEqual(self.settings(alice), before)
+        self.assertEqual(self.discoveries, [])
+        self.put_prefs(bob, sample_interval=4)  # personal preferences stay per account
+        self.assertEqual(alice.send("POST", "/api/settings/lock", {}).status_code, 200)
+        self.assertTrue(self.settings(bob)["vault"]["locked"])
+        self.assertFalse(self.bedrock_entry(bob)["configured"])
 
     def test_cross_user_session_ids_are_rejected(self):
         alice, bob = self.pair()
@@ -454,9 +470,9 @@ class IsolationTests(AccountTestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(self.settings(alice)["sample_interval"], 10)
 
-        resp = bob.send("POST", "/api/settings/vault", {"passphrase": BOB_VAULT, "user_id": alice_id})
-        self.assertIn(resp.status_code, (201, 400))
-        self.assertFalse(self.settings(alice)["vault"]["initialized"])
+        resp = bob.send("POST", "/api/settings/lock", {"user_id": alice_id})
+        self.assertIn(resp.status_code, (400, 403))
+        self.assertFalse(self.settings(alice)["vault"]["locked"])
 
         spoofed = bob.client.get("/api/auth", headers={"X-User-Id": str(alice_id), "X-Username": "alice"})
         self.assertEqual(spoofed.get_json()["user"]["username"], "bob")
@@ -464,10 +480,8 @@ class IsolationTests(AccountTestCase):
 
 
 class LogoutTests(AccountTestCase):
-    def test_logout_revokes_replayed_cookie_and_locks_only_caller_vault(self):
+    def test_logout_revokes_replayed_cookie_and_keeps_shared_vault(self):
         alice, bob = self.pair()
-        self.init_vault(alice, ALICE_VAULT)
-        self.init_vault(bob, BOB_VAULT)
         self.assertEqual(alice.send("POST", "/api/auth/logout", token="wrong").status_code, 403)
         self.settings(alice)  # still logged in
 
@@ -484,9 +498,10 @@ class LogoutTests(AccountTestCase):
         for path in ("/api/settings", "/api/config", "/api/sessions/active"):
             self.assertEqual(replayed.get(path).status_code, 401, path)
 
+        # An administrator signing out does not lock the connection everyone else is using.
         self.assertEqual(self.settings(bob)["vault"], {"initialized": True, "locked": False})
         again = self.login("alice", ALICE_PW)
-        self.assertEqual(self.settings(again)["vault"], {"initialized": True, "locked": True})
+        self.assertEqual(self.settings(again)["vault"], {"initialized": True, "locked": False})
 
     def test_logout_during_analysis_discards_late_result(self):
         alice = self.setup_admin()
@@ -502,6 +517,8 @@ class LogoutTests(AccountTestCase):
 
 
 class ProviderIsolationTests(AccountTestCase):
+    shared_connection = False
+
     def setUp(self):
         super().setUp()
         env = mock.patch.dict(os.environ, ENV_AWS)
@@ -519,38 +536,39 @@ class ProviderIsolationTests(AccountTestCase):
         resp = cook.send("POST", "/api/sessions", self.start_body(cook, provider="bedrock", model="vision-model"))
         self.assertIn(resp.status_code, (400, 409))
 
-    def test_account_users_never_use_ambient_aws_credentials(self):
+    def test_accounts_use_only_the_shared_connection_never_ambient_aws_credentials(self):
         alice, bob = self.pair()
         for cook in (alice, bob):
             self.assert_no_environment_bedrock(cook)
-            self.assertEqual(cook.get(DISCOVERY, **{"X-CSRF-Token": cook.token}).status_code, 409)
+        self.assertEqual(alice.get(DISCOVERY, **{"X-CSRF-Token": alice.token}).status_code, 409)
 
         self.init_vault(alice, ALICE_VAULT)
         self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
-        self.init_vault(bob, BOB_VAULT)
-        self.save_bedrock(bob, BOB_KEY, BOB_SECRET)
         for cook in (alice, bob):
             session = self.act(cook, self.start(cook, provider="bedrock", model="vision-model")["id"], "resume")
             self.assertEqual(self.observe(cook, session).status_code, 200)
         self.assertEqual([(p, c.access_key_id, c.secret_access_key) for p, _, c in self.analyses],
-                         [("bedrock", ALICE_KEY, ALICE_SECRET), ("bedrock", BOB_KEY, BOB_SECRET)])
+                         [("bedrock", ALICE_KEY, ALICE_SECRET), ("bedrock", ALICE_KEY, ALICE_SECRET)])
 
-        # Removing a saved connection never falls back to the server environment.
+        # Removing the shared connection never falls back to the server environment.
         self.act(bob, self.active_id(bob), "end")
-        self.assertEqual(bob.send("DELETE", "/api/settings/bedrock").status_code, 200)
+        self.assertEqual(bob.send("DELETE", "/api/settings/bedrock").status_code, 403)
+        self.assertEqual(alice.send("DELETE", "/api/settings/bedrock").status_code, 200)
         self.assert_no_environment_bedrock(bob)
         self.session_cls.assert_not_called()
         self.assertEqual(self.discoveries, [])
 
 
 class PersistenceTests(AccountTestCase):
-    def test_restart_locks_user_vaults_and_keeps_preferences(self):
+    shared_connection = False
+
+    def test_restart_locks_shared_vault_and_keeps_preferences(self):
         alice, bob = self.pair()
         self.put_prefs(alice, sample_interval=7, voice_id="matthew")
         self.put_prefs(bob, sample_interval=3)
         self.init_vault(alice, ALICE_VAULT)
         self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
-        sid = self.start(alice)["id"]
+        sid = self.start(alice, model="vision-model")["id"]
 
         self.app = self.make_app()  # restart
         self.assertFalse(self.anon().refresh()["setup_required"])
@@ -559,12 +577,12 @@ class PersistenceTests(AccountTestCase):
         self.assertEqual((a["vault"], a["sample_interval"], a["voice"]["voice_id"], a["bedrock"]["region"]),
                          ({"initialized": True, "locked": True}, 7, "matthew", None))
         self.assertEqual((b["vault"], b["sample_interval"], b["voice"]["voice_id"]),
-                         ({"initialized": False, "locked": True}, 3, "tiffany"))
+                         ({"initialized": True, "locked": True}, 3, "tiffany"))
         self.assertEqual((self.active_id(alice), self.active_id(bob)), (sid, None))
 
+        self.assertEqual(bob.send("POST", "/api/settings/unlock", {"passphrase": ALICE_VAULT}).status_code, 403)
         self.assertEqual(alice.send("POST", "/api/settings/unlock", {"passphrase": ALICE_VAULT}).status_code, 200)
-        self.assertTrue(self.settings(alice)["bedrock"]["has_credentials"])
-        self.assertFalse(self.settings(bob)["vault"]["initialized"])
+        self.assertTrue(self.settings(bob)["bedrock"]["has_credentials"])  # one unlock serves everyone
 
     def test_legacy_rows_settings_and_vault_are_preserved_but_unclaimed(self):
         self.db_path = os.path.join(self.tmp.name, "legacy.sqlite3")
@@ -598,10 +616,11 @@ class PersistenceTests(AccountTestCase):
                          (10, "tiffany", {"provider": None, "model": None}))
         self.assertEqual(data["vault"], {"initialized": False, "locked": True})
         resp = alice.send("POST", "/api/settings/unlock", {"passphrase": ALICE_VAULT})
-        self.assertEqual(resp.status_code, 409)  # Alice has no vault; the legacy file is not hers
+        self.assertEqual(resp.status_code, 409)  # no shared vault yet; the legacy file is not it
 
-        self.start(alice)  # the unclaimed legacy active row does not block her
         self.init_vault(alice, ALICE_VAULT)
+        self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
+        self.start(alice, model="vision-model")  # the unclaimed legacy active row does not block her
         with open(self.legacy_vault, "rb") as fh:
             self.assertEqual(fh.read(), legacy_bytes)
         with closing(sqlite3.connect(self.db_path)) as db:
@@ -669,12 +688,9 @@ class AccountRaceTests(AccountTestCase):
         self.assertEqual(self.login("alice", self_change, expect=401).user, None)
 
     def test_vault_lock_during_provider_call_discards_observation(self):
-        alice = self.setup_admin()
-        self.init_vault(alice, ALICE_VAULT)
-        self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
-        session = self.act(alice, self.start(alice, provider="bedrock", model="vision-model")["id"],
-                           "resume")
-        self.on_analyze = lambda: self.assertEqual(alice.send("POST", "/api/settings/lock", {}).status_code, 200)
+        admin, alice = self.pair()  # "alice" cooks below; the administrator locks the shared vault meanwhile
+        session = self.act(alice, self.start(alice)["id"], "resume")
+        self.on_analyze = lambda: self.assertEqual(admin.send("POST", "/api/settings/lock", {}).status_code, 200)
 
         response = self.observe(alice, session)
 
@@ -687,11 +703,9 @@ class AccountRaceTests(AccountTestCase):
 
     def test_vault_lock_waits_for_a_result_already_being_committed(self):
         alice = self.setup_admin()
-        self.init_vault(alice, ALICE_VAULT)
-        self.save_bedrock(alice, ALICE_KEY, ALICE_SECRET)
-        session = self.act(alice, self.start(alice, provider="bedrock", model="vision-model")["id"], "resume")
+        session = self.act(alice, self.start(alice)["id"], "resume")
         other = self.login("alice", ALICE_PW)  # a second browser of the same account
-        vault = sous_app.user_vault(self.app, alice.user["id"])
+        vault = sous_app.shared_vault(self.app)
         in_commit, release, lock_called = threading.Event(), threading.Event(), threading.Event()
         original_apply, original_lock = sous_app.apply_observation, Vault.lock
         results = {}
@@ -753,8 +767,8 @@ class AccountRaceTests(AccountTestCase):
 
 
 class VaultRevocationRaceTests(AccountTestCase):
-    """Vault create/unlock vs. a concurrent logout or administrator password reset (docs/v2.md:
-    the vault locks on logout/password reset).
+    """Shared-vault create/unlock vs. a concurrent logout or password reset of the acting
+    administrator (docs/v3.md). Both accounts here are administrators.
 
     A request authenticated before the revocation committed must not mutate the vault after it.
     The stale-request tests pause it at app.settings_body: after require_login, and before the
@@ -764,6 +778,7 @@ class VaultRevocationRaceTests(AccountTestCase):
     revocation's write transaction to wait. Every wait is bounded; there are no sleeps.
     """
 
+    shared_connection = False
     WAIT = 5
     BLOCKED = 0.2  # bounded negative check: the revocation must still be waiting after this long
 
@@ -793,11 +808,14 @@ class VaultRevocationRaceTests(AccountTestCase):
         self.assertIn(result.status_code, statuses, (name, result.get_json()))
 
     def stale_vault_request(self, how, path, prepare):
-        """Pause Bob's create/unlock after authentication, revoke, resume. Returns Bob's vault."""
-        alice, bob = self.pair()
+        """Pause administrator Bob's create/unlock after authentication, revoke, resume."""
+        alice = self.setup_admin()
+        resp = alice.send("POST", "/api/users", {"username": "bob", "password": BOB_PW, "is_admin": True})
+        self.assertEqual(resp.status_code, 201, resp.get_json())
+        bob = self.login("bob", BOB_PW)
         prepare(bob)
         bob_id = bob.user["id"]
-        vault = sous_app.user_vault(self.app, bob_id)
+        vault = sous_app.shared_vault(self.app)
         self.assertTrue(vault.locked)
         replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
         paused, resume = threading.Event(), threading.Event()
@@ -819,7 +837,7 @@ class VaultRevocationRaceTests(AccountTestCase):
                 self.assertTrue(paused.wait(self.WAIT), "the vault request never reached its pause point")
                 revoked = self.revoke(how, alice, bob_id, replayed)
                 self.assertEqual(revoked.status_code, 200, revoked.get_json())
-                self.assertTrue(vault.locked)  # revocation completed while the request was paused
+                self.assertTrue(vault.locked)  # still locked: the paused request has not changed it
             finally:
                 resume.set()
                 worker.join(self.WAIT)
@@ -845,7 +863,7 @@ class VaultRevocationRaceTests(AccountTestCase):
 
     def assert_stale_create_fails(self, how):
         vault, fresh = self.stale_vault_request(how, "/api/settings/vault", lambda bob: None)
-        self.assertFalse(vault.initialized, "a revoked login set the account's vault passphrase")
+        self.assertFalse(vault.initialized, "a revoked login set the shared vault passphrase")
         self.assertFalse(os.path.exists(vault.path))
         self.assertEqual(self.settings(fresh)["vault"], {"initialized": False, "locked": True})
         self.init_vault(fresh, BOB_VAULT)  # the live login can still create it
@@ -861,112 +879,6 @@ class VaultRevocationRaceTests(AccountTestCase):
 
     def test_create_authenticated_before_password_reset_cannot_create_after_it(self):
         self.assert_stale_create_fails("reset")
-
-    # --- reverse ordering: the unlock completes (or is already mutating) before revocation
-
-    def assert_completed_unlock_then_revocation_locks(self, how):
-        alice, bob = self.pair()
-        self.prepare_locked_vault(bob)
-        vault = sous_app.user_vault(self.app, bob.user["id"])
-        replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
-        resp = bob.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT})
-        self.assertEqual(resp.status_code, 200, resp.get_json())
-        self.assertFalse(vault.locked)
-
-        revoked = self.revoke(how, alice, bob.user["id"], replayed)
-        self.assertEqual(revoked.status_code, 200, revoked.get_json())
-        self.assertTrue(vault.locked)
-        self.assertEqual(bob.get("/api/settings").status_code, 401)
-        fresh = self.login("bob", self.password_after(how))
-        self.assertEqual(self.settings(fresh)["vault"], {"initialized": True, "locked": True})
-
-    def live_logins(self, user_id):
-        """Committed auth_sessions rows, read on a separate connection (never takes the write lock)."""
-        with closing(sqlite3.connect(self.db_path, timeout=self.WAIT)) as db:
-            return db.execute("SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?", (user_id,)).fetchone()[0]
-
-    def assert_in_flight_unlock_then_revocation_locks(self, how):
-        """The unlock's login recheck and its vault change are one serialized step.
-
-        Bob's unlock is paused right after accounts.recheck_actor succeeded for it. The revocation
-        is then started and observed issuing BEGIN IMMEDIATE. It must not complete while the
-        unlock is paused: if the recheck ran outside the database write lock, the revocation would
-        commit here and the resumed unlock would change the vault for a revoked login. After
-        resuming, the unlock (authorized first) succeeds and the revocation then locks the vault.
-        """
-        alice, bob = self.pair()
-        self.prepare_locked_vault(bob)
-        bob_id = bob.user["id"]
-        vault = sous_app.user_vault(self.app, bob_id)
-        replayed = self.replay(self.cookie_jar(bob)) if how == "logout" else None
-        logins_before = self.live_logins(bob_id)
-        self.assertGreater(logins_before, 0)
-        rechecked, revoke_begins, resume = threading.Event(), threading.Event(), threading.Event()
-        original_recheck, original_connect = accounts.recheck_actor, sous_app.connect
-        results = {}
-
-        def held_recheck(db, user_id, token_hash, admin=False):
-            original_recheck(db, user_id, token_hash, admin=admin)  # raises: no pause, test fails
-            if threading.current_thread().name == "vault-race-unlock" and not rechecked.is_set():
-                rechecked.set()
-                resume.wait(self.WAIT)
-
-        class TracedConnection:
-            """Delegates to a real connection; reports the revocation's write-lock attempt."""
-
-            def __init__(self, db):
-                self._db = db
-
-            def execute(self, sql, *args):
-                if sql == "BEGIN IMMEDIATE" and threading.current_thread().name == "vault-race-revoke":
-                    revoke_begins.set()
-                return self._db.execute(sql, *args)
-
-            def __getattr__(self, name):
-                return getattr(self._db, name)
-
-        threads = []
-        with mock.patch("accounts.recheck_actor", held_recheck), \
-                mock.patch("app.connect", lambda path: TracedConnection(original_connect(path))):
-            threads.append(self.run_in_thread(
-                results, "unlock", lambda: bob.send("POST", "/api/settings/unlock", {"passphrase": BOB_VAULT})))
-            try:
-                self.assertTrue(rechecked.wait(self.WAIT), "the unlock never passed its login recheck")
-                self.assertTrue(vault.locked)  # paused after the recheck, before the vault change
-                threads.append(self.run_in_thread(
-                    results, "revoke", lambda: self.revoke(how, alice, bob_id, replayed)))
-                self.assertTrue(revoke_begins.wait(self.WAIT), "the revocation never began its transaction")
-                threads[1].join(self.BLOCKED)
-                self.assertTrue(threads[1].is_alive(),
-                                "revocation completed while an authorized unlock was between recheck and change")
-                self.assertNotIn("revoke", results)
-                self.assertEqual(self.live_logins(bob_id), logins_before)  # nothing revoked yet
-                self.assertTrue(vault.locked)
-            finally:
-                resume.set()
-                for thread in threads:
-                    thread.join(self.WAIT)
-        self.assertFalse(any(t.is_alive() for t in threads), "a request did not finish")
-
-        self.assert_response(results, "unlock", (200,))  # authorized before the revocation committed
-        self.assert_response(results, "revoke", (200,))
-        self.assertEqual(self.live_logins(bob_id), 0)
-        self.assertTrue(vault.locked, "revocation did not leave the vault locked")
-        self.assertEqual(bob.get("/api/settings").status_code, 401)
-        fresh = self.login("bob", self.password_after(how))
-        self.assertEqual(self.settings(fresh)["vault"], {"initialized": True, "locked": True})
-
-    def test_completed_unlock_then_logout_leaves_vault_locked(self):
-        self.assert_completed_unlock_then_revocation_locks("logout")
-
-    def test_completed_unlock_then_password_reset_leaves_vault_locked(self):
-        self.assert_completed_unlock_then_revocation_locks("reset")
-
-    def test_logout_waits_for_unlock_already_past_its_login_recheck(self):
-        self.assert_in_flight_unlock_then_revocation_locks("logout")
-
-    def test_password_reset_waits_for_unlock_already_past_its_login_recheck(self):
-        self.assert_in_flight_unlock_then_revocation_locks("reset")
 
 
 if __name__ == "__main__":

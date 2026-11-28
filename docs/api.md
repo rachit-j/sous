@@ -12,7 +12,7 @@ The index template injects a CSRF token in a meta element. POST calls include `X
 
 Recipe: `{id, name, description, ingredients: [string], steps: [{title, instruction, visual_cue}]}`. Recipes have arbitrary nonempty ordered step lists, addressed by zero-based index. Scrambled eggs is the first bundled example, not a state-machine or model constraint. Definitions load from `recipes/*.json` in filename order.
 
-Provider: `{id: "ollama"|"openai"|"anthropic"|"bedrock", name, configured: boolean, default_model: string}`. Ollama defaults to local URL; cloud entries require server credentials/config. A model ID is required when creating a session. Don't probe or download models automatically.
+Provider (V3): `{id: "bedrock", name, configured: boolean, locked, source, default_model: string}` — the only provider, configured through the administrator-managed shared connection. A model ID is required when creating a session. Don't probe or download models automatically.
 
 ## Session shape
 
@@ -48,4 +48,4 @@ Normalized model output: `{activity: string, evidence: string, confidence: numbe
 
 ## Environment
 
-`OLLAMA_BASE_URL` (default http://localhost:11434), `OLLAMA_MODEL`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `AWS_REGION`, `BEDROCK_MODEL_ID`, optional `AWS_PROFILE`. AWS uses its standard credential chain. Optional `SOUS_SECRET_KEY`, `SOUS_DATABASE` overrides for setup/tests. Load .env server-side. Do not accept arbitrary provider URLs from browser requests.
+V3 reads no provider configuration from the environment; the shared Bedrock connection lives in the encrypted vault. Optional `SOUS_SECRET_KEY`, `SOUS_DATABASE` overrides for setup/tests. Do not accept arbitrary provider URLs from browser requests.

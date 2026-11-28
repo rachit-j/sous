@@ -3,6 +3,9 @@
 import os
 import unittest
 from pathlib import Path
+import tempfile
+
+ARTIFACTS = os.environ.get("SOUS_ARTIFACTS", os.path.join(tempfile.gettempdir(), "sous-webkit-artifacts"))
 
 @unittest.skipUnless(os.environ.get("SOUS_BROWSER_TESTS") == "1", "Set SOUS_BROWSER_TESTS=1 to run isolated WebKit UI tests.")
 class SousV2BrowserTests(unittest.TestCase):
@@ -20,7 +23,7 @@ class SousV2BrowserTests(unittest.TestCase):
         from werkzeug.serving import make_server
         import tempfile
         import threading
-        self.temp = tempfile.TemporaryDirectory(prefix="sous-v2-browser-", dir="/tmp")
+        self.temp = tempfile.TemporaryDirectory(prefix="sous-v2-browser-", dir=tempfile.gettempdir())
         self.addCleanup(self.temp.cleanup)
         app = create_app({"TESTING": True, "DATABASE": os.path.join(self.temp.name, "v2.sqlite3"), "SECRET_KEY": "synthetic-v2-browser-key"})
         self.server = make_server("127.0.0.1", 0, app, threaded=True)
@@ -109,7 +112,7 @@ class SousV2BrowserTests(unittest.TestCase):
         route.fulfill(json={"user": None, "csrf_token": "csrf-3"})
 
     def capture_responsive(self, name, selector):
-        root = Path("/private/tmp/sous-webkit-artifacts")
+        root = Path(ARTIFACTS)
         root.mkdir(parents=True, exist_ok=True)
         for label, width, height in (("desktop", 1280, 900), ("mobile", 390, 844)):
             self.page.evaluate("() => document.activeElement instanceof HTMLElement && document.activeElement.blur()")
@@ -155,7 +158,6 @@ class SousV2BrowserTests(unittest.TestCase):
             "recipes": self.cooking_catalog,
             "providers": [
                 {"id": "bedrock", "name": "AWS Bedrock", "configured": True, "locked": False, "default_model": "synthetic.test-model"},
-                {"id": "ollama", "name": "Ollama (local)", "configured": True, "default_model": "synthetic.ollama-model"},
             ],
             "defaults": {"provider": "bedrock", "model": "synthetic.test-model"},
             "sample_interval": 10,

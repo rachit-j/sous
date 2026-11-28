@@ -1,21 +1,16 @@
-"""Vision-model adapters: Ollama /api/chat, OpenAI Responses, Anthropic Messages, Bedrock Converse.
+"""Vision-model adapter: AWS Bedrock Converse with the shared connection (docs/v3.md).
 
 analyze() returns {activity, evidence, confidence, step_complete, alert}; app.validate_observation
 re-checks it. Models only report on the current step. Images, request bodies and upstream
 error text are never stored or logged; failures raise short static messages.
 """
 
-import base64
 import json
-import os
 import re
-
-import requests
 
 from cooking import ALERT_CATEGORIES, normalize_safety
 
 CONNECT_TIMEOUT = 5
-OLLAMA_READ_TIMEOUT = 180  # a cold local model may need to load first
 CLOUD_READ_TIMEOUT = 60
 MAX_OUTPUT_TOKENS = 1024
 FIELDS = ("activity", "evidence", "confidence", "step_complete", "alert")  # required in every reply
@@ -87,15 +82,10 @@ class InvalidOutput(ValueError):
 
 
 def analyze(provider_id, model, jpeg, context, bedrock=None):
-    """bedrock: optional settings.BedrockConnection; when given, Bedrock uses only those credentials."""
-    adapter = ADAPTERS.get(provider_id)
-    if adapter is None:
+    """bedrock: the shared settings.BedrockConnection (required; no environment fallback)."""
+    if provider_id != "bedrock" or bedrock is None:
         raise ProviderError("Unknown provider.")
-    if bedrock is not None:
-        if provider_id != "bedrock":
-            raise ProviderError("Unknown provider.")
-        return parse_observation(bedrock_converse(model, jpeg, build_prompt(context), bedrock))
-    return parse_observation(adapter(model, jpeg, build_prompt(context)))
+    return parse_observation(bedrock_converse(model, jpeg, build_prompt(context), bedrock))
 
 
 # --- Prompt and output parsing --------------------------------------------
@@ -164,137 +154,19 @@ def parse_observation(text):
     return {**{key: data[key] for key in FIELDS}, "safety_alert": safety_alert, "view_obstructed": view_obstructed}
 
 
-# --- HTTP helper ----------------------------------------------------------
-
-def post_json(url, headers, payload, read_timeout):
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=(CONNECT_TIMEOUT, read_timeout))
-    except requests.Timeout:
-        raise ProviderError("Provider request timed out.") from None
-    except requests.RequestException:
-        raise ProviderError("Could not reach the provider.") from None
-    if resp.status_code in (401, 403):
-        raise ProviderError("Provider rejected the credentials or permissions.")
-    if resp.status_code == 404:
-        raise ProviderError("Model or endpoint not found.")
-    if resp.status_code == 429:
-        raise ProviderError("Provider rate limit or quota reached.")
-    if not 200 <= resp.status_code < 300:
-        raise ProviderError(f"Provider returned HTTP {resp.status_code}.")
-    try:
-        data = resp.json()
-    except ValueError:
-        raise ProviderError("Provider returned a malformed response.") from None
-    if not isinstance(data, dict):
-        raise ProviderError("Provider returned a malformed response.")
-    return data
-
-
-def require_env(name, provider_name):
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise ProviderError(f"{provider_name} is not configured on the server.")
-    return value
-
-
-# --- Adapters -------------------------------------------------------------
-
-def ollama_chat(model, jpeg, prompt):
-    base = os.environ.get("OLLAMA_BASE_URL", "").strip() or "http://localhost:11434"
-    if not base.startswith(("http://", "https://")):
-        raise ProviderError("OLLAMA_BASE_URL must be an http(s) URL.")
-    data = post_json(f"{base.rstrip('/')}/api/chat", {}, {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt, "images": [base64.b64encode(jpeg).decode("ascii")]},
-        ],
-        "stream": False,
-        "format": OBSERVATION_SCHEMA,
-        "options": {"temperature": 0},
-    }, OLLAMA_READ_TIMEOUT)
-    if data.get("done_reason") == "length":
-        raise ProviderError("Model response was cut off.")
-    message = data.get("message")
-    if not isinstance(message, dict):
-        raise ProviderError("Provider returned a malformed response.")
-    return message.get("content")
-
-
-def openai_responses(model, jpeg, prompt):
-    key = require_env("OPENAI_API_KEY", "OpenAI")
-    data = post_json("https://api.openai.com/v1/responses", {"Authorization": f"Bearer {key}"}, {
-        "model": model,
-        "instructions": SYSTEM_PROMPT,
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt},
-                {"type": "input_image",
-                 "image_url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode("ascii")},
-            ],
-        }],
-        "text": {"format": {"type": "json_schema", "name": "observation",
-                            "schema": OBSERVATION_SCHEMA, "strict": True}},
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
-        "store": False,
-    }, CLOUD_READ_TIMEOUT)
-    if data.get("status") not in (None, "completed"):
-        raise ProviderError("Model response was incomplete.")
-    texts, refused = [], False
-    for item in data.get("output") or []:
-        if not isinstance(item, dict) or item.get("type") != "message":
-            continue  # e.g. reasoning items are never surfaced
-        for part in item.get("content") or []:
-            if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str):
-                texts.append(part["text"])
-            elif isinstance(part, dict) and part.get("type") == "refusal":
-                refused = True
-    if refused and not texts:
-        raise ProviderError("Model declined to analyze the frame.")
-    return "".join(texts)
-
-
-def anthropic_messages(model, jpeg, prompt):
-    key = require_env("ANTHROPIC_API_KEY", "Anthropic")
-    data = post_json("https://api.anthropic.com/v1/messages",
-                     {"x-api-key": key, "anthropic-version": "2023-06-01"}, {
-        "model": model,
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        "system": SYSTEM_PROMPT,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                             "data": base64.b64encode(jpeg).decode("ascii")}},
-                {"type": "text", "text": prompt},
-            ],
-        }],
-    }, CLOUD_READ_TIMEOUT)
-    if data.get("stop_reason") == "refusal":
-        raise ProviderError("Model declined to analyze the frame.")
-    if data.get("stop_reason") == "max_tokens":
-        raise ProviderError("Model response was cut off.")
-    blocks = data.get("content") or []
-    # Only text blocks; thinking blocks are never surfaced.
-    return "".join(b["text"] for b in blocks
-                   if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str))
-
+# --- Bedrock ---------------------------------------------------------------
 
 def bedrock_client(service, connection, read_timeout, retries=None):
-    """Bedrock client. connection (managed settings) supplies explicit credentials and region;
-    without it the legacy AWS_REGION/AWS_PROFILE/default credential chain is used. Credentials
-    are passed to the Session only, never written to os.environ."""
+    """Bedrock client from the shared connection's explicit credentials and region (required).
+    Credentials are passed to the Session only, never written to os.environ."""
     import boto3
     from botocore.config import Config
     if connection is None:
-        region = require_env("AWS_REGION", "AWS Bedrock")
-        session = boto3.Session(profile_name=os.environ.get("AWS_PROFILE") or None, region_name=region)
-    else:
-        session = boto3.Session(aws_access_key_id=connection.access_key_id,
-                                aws_secret_access_key=connection.secret_access_key,
-                                aws_session_token=connection.session_token or None,
-                                region_name=connection.region)
+        raise ProviderError("AWS Bedrock is not configured.")
+    session = boto3.Session(aws_access_key_id=connection.access_key_id,
+                            aws_secret_access_key=connection.secret_access_key,
+                            aws_session_token=connection.session_token or None,
+                            region_name=connection.region)
     return session.client(service, config=Config(connect_timeout=CONNECT_TIMEOUT, read_timeout=read_timeout,
                                                  retries=retries or {"max_attempts": 2, "mode": "standard"}))
 
@@ -344,7 +216,7 @@ def aws_error(exc):
     return None
 
 
-def bedrock_converse(model, jpeg, prompt, connection=None):
+def bedrock_converse(model, jpeg, prompt, connection):
     try:
         client = bedrock_client("bedrock-runtime", connection, CLOUD_READ_TIMEOUT)
         data = client.converse(
@@ -489,5 +361,4 @@ def _profile_candidate(item, image_ids):
             "kind": "inference_profile"}
 
 
-ADAPTERS = {"ollama": ollama_chat, "openai": openai_responses, "anthropic": anthropic_messages,
-            "bedrock": bedrock_converse}
+

@@ -34,14 +34,14 @@
     </section>
 
     <section id="auth-panel" class="auth-panel" hidden aria-labelledby="auth-title">
-      <header><h1 id="auth-title">Sign in to Sous</h1><p class="lede" id="auth-intro">Your recipes, cooking sessions, and AWS connection are private to your account.</p></header>
+      <header><h1 id="auth-title">Sign in to Sous</h1><p class="lede" id="auth-intro">Sign in to start cooking.</p></header>
       <form id="login-form" class="panel auth-form" hidden>
         <div class="field"><label for="login-username">Username</label><input id="login-username" name="username" maxlength="64" autocomplete="username" required></div>
         <div class="field"><label for="login-password">Password</label><input id="login-password" name="password" type="password" maxlength="1024" autocomplete="current-password" required></div>
         <p class="settings-error" id="login-error" role="status" hidden></p><button class="button button-primary" type="submit">Sign in</button>
       </form>
       <form id="admin-setup-form" class="panel auth-form" hidden>
-        <h2>Create the first administrator</h2><p class="field-help">This private instance has no accounts yet. Use a unique password; it is separate from your AWS vault passphrase.</p>
+        <h2>Create the first administrator</h2><p class="field-help">Create the first account for this kitchen.</p>
         <div class="field"><label for="setup-username">Username</label><input id="setup-username" name="username" maxlength="64" autocomplete="username" required></div>
         <div class="field"><label for="setup-password">Password</label><input id="setup-password" name="password" type="password" maxlength="1024" autocomplete="new-password" required></div>
         <p class="settings-error" id="setup-error" role="status" hidden></p><button class="button button-primary" type="submit">Create administrator</button>
@@ -51,7 +51,7 @@
     <section id="setup-panel" class="setup-panel" hidden>
       <header class="setup-header">
           <h1>Start a cooking session</h1>
-        <p class="lede">Choose a recipe and how Sous should guide you. You control every step.</p>
+        <p class="lede">Pick a recipe and how you’d like Sous to help.</p>
       </header>
       <form id="setup-form" class="setup-form">
         <div class="setup-recipe">
@@ -63,30 +63,30 @@
         </div>
         <div class="setup-options">
           <h2 class="pane-title">Guidance</h2>
-          <p class="guidance-summary" id="guidance-summary">Choose a configured model to guide this recipe.</p>
+          <p class="guidance-summary" id="guidance-summary" hidden></p>
           <div id="provider-locked-notice" class="settings-callout" hidden role="status"><p id="provider-locked-text">The shared AWS connection is locked. An administrator must unlock it before cooking with camera guidance.</p><button class="button button-secondary button-small" id="settings-unlock-link" type="button">Open Settings</button></div>
           <details class="override-details" id="provider-overrides">
-            <summary>Use a different model for this session</summary>
+            <summary>Advanced</summary>
             <div class="override-fields">
               <div class="field">
                 <label for="provider-select">Provider</label>
                 <select id="provider-select" name="provider" required></select>
-                <p class="field-help">Everyone uses the shared AWS Bedrock connection.</p>
+                
               </div>
               <div class="field">
                 <label for="model-input">Model</label>
                 <input id="model-input" name="model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model ID" required>
-                <p class="field-help">Defaults to the shared model chosen by an administrator.</p>
+                
               </div>
             </div>
           </details>
           <fieldset class="field mode-field">
             <legend>How should Sous guide you?</legend>
-            <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Sous watches quietly. It speaks only for timers and camera alerts; step changes show on screen.</small></span></label>
-            <label class="radio-choice"><input type="radio" name="mode" value="assistive"><span><strong>Talk me through it</strong><small>Sous also reads each step aloud and says when the camera thinks a step is done.</small></span></label>
+            <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Sous stays quiet and speaks up for timers and alerts.</small></span></label>
+            <label class="radio-choice"><input type="radio" name="mode" value="assistive"><span><strong>Talk me through it</strong><small>Sous reads each step aloud as you go.</small></span></label>
           </fieldset>
           <div class="setup-footer">
-            <p class="privacy-note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><span>Camera stays off until you turn it on. Your hands-on controls work without it.</span></p>
+            <p class="privacy-note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><span>The camera stays off until you turn it on.</span></p>
             <button class="button button-primary button-large" type="submit" id="start-session">Start cooking <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
           </div>
         </div>
@@ -96,7 +96,7 @@
     <section id="settings-panel" class="settings-panel" hidden aria-labelledby="settings-title">
       <header class="settings-header">
         <h1 id="settings-title" tabindex="-1">Settings</h1>
-        <p class="lede">Manage the model Sous uses and how often it checks a still image. Saving credentials does not test AWS access.</p>
+        <p class="lede">Your preferences and this kitchen’s connection.</p>
       </header>
 
       <section class="settings-section panel" aria-labelledby="password-heading"><div class="settings-section-head"><div><h2 id="password-heading">Account password</h2><p>Changing your password signs out your other sessions.</p></div></div>
@@ -113,7 +113,7 @@
 
       <section class="settings-section panel" id="shared-connection-panel" aria-labelledby="shared-connection-heading" hidden>
         <div class="settings-section-head"><div><h2 id="shared-connection-heading">AWS connection</h2><p id="shared-connection-status" class="settings-status" role="status">Loading…</p></div><span class="badge settings-source" id="shared-connection-badge">Shared</span></div>
-        <p class="field-help">Everyone on this instance uses one AWS Bedrock connection managed by an administrator. You don't need your own keys.</p>
+        
       </section>
 
       <section class="settings-section panel admin-only" aria-labelledby="vault-heading">
@@ -150,7 +150,7 @@
         <div class="model-discovery" id="model-discovery">
           <div class="field"><label for="bedrock-model-picker">Available image models</label><select id="bedrock-model-picker" disabled><option value="">Load models after saving a connection</option></select></div>
           <div class="settings-actions"><button class="button button-secondary" id="discover-models" type="button" disabled>Load available models</button><button class="button button-ghost" id="use-custom-model" type="button">Enter a model ID manually</button></div>
-          <p class="field-help" id="model-discovery-note">Model listing is metadata only. It does not check whether your account can invoke a model.</p>
+          <p class="field-help" id="model-discovery-note"></p>
           <p class="settings-error" id="model-error" role="status" hidden></p>
         </div>
         <div class="field custom-model-field" id="custom-model-field" hidden><label for="bedrock-model">Model or inference profile ID</label><input id="bedrock-model" type="text" maxlength="200" autocomplete="off" spellcheck="false" placeholder="Enter a model or profile ID"><div class="settings-form-actions"><button class="button button-secondary button-small" id="save-model" type="button">Save model ID</button><button class="button button-ghost button-small" id="default-bedrock-model" type="button">Save as Bedrock default</button></div></div>
@@ -170,7 +170,7 @@
       <section class="settings-section panel" aria-labelledby="interval-heading">
         <div class="settings-section-head"><div><h2 id="interval-heading">Snapshot interval</h2><p>How often Sous requests a camera still while guidance is on.</p></div></div>
         <form id="interval-form" class="settings-form interval-form">
-          <div class="field"><label for="sample-interval">Seconds between checks</label><input id="sample-interval" type="number" min="1" max="15" step="1" required><p class="field-help">A shorter interval can increase cloud usage. Analyses do not overlap.</p></div>
+          <div class="field"><label for="sample-interval">Seconds between checks</label><input id="sample-interval" type="number" min="1" max="15" step="1" required><p class="field-help">Shorter intervals cost more.</p></div>
           <p class="settings-error" id="interval-error" role="status" hidden></p>
           <button class="button button-secondary" id="save-interval" type="submit">Save interval</button>
         </form>
@@ -186,17 +186,17 @@
       </section>
     </section>
 
-    <section id="recipes-panel" class="v2-panel" hidden aria-labelledby="recipes-title"><header class="page-header"><div><h1 id="recipes-title">Recipes</h1><p class="lede">Choose a shared recipe, keep your own, or make a draft with AI.</p></div><button class="button button-primary" id="new-recipe-button" type="button">Create recipe</button></header>
-      <div class="library-tools"><label class="field"><span>Find a recipe</span><input id="recipe-search" type="search" placeholder="Name or ingredient"></label><button class="button button-secondary" id="open-generator" type="button">Make a recipe with AI</button><button class="button button-secondary" id="recipe-voice-toggle" type="button" aria-pressed="false">Create by voice</button></div>
-      <section id="recipe-voice-panel" class="panel voice-panel recipe-voice-panel" hidden aria-labelledby="recipe-voice-title"><div class="panel-head"><div><h2 id="recipe-voice-title">Create a recipe by voice</h2><p>Tell Sous what you'd like to cook. It asks a few questions, then opens an editable draft below. Nothing is saved until you press Save.</p></div></div><p class="voice-companion-status" id="recipe-voice-status" role="status" aria-live="polite">Voice is off.</p><p class="voice-mic-note">While voice is on, microphone audio streams to AWS Nova 2 Sonic and isn’t saved by Sous. AWS charges may apply.</p><ol class="voice-transcript" id="recipe-voice-transcript" aria-label="Temporary voice conversation" aria-live="polite" aria-relevant="additions text"></ol></section>
+    <section id="recipes-panel" class="v2-panel" hidden aria-labelledby="recipes-title"><header class="page-header"><div><h1 id="recipes-title">Recipes</h1><p class="lede">Shared favorites and your own recipes.</p></div><button class="button button-primary" id="new-recipe-button" type="button">Create recipe</button></header>
+      <div class="library-tools"><label class="field"><span>Find a recipe</span><input id="recipe-search" type="search" placeholder="Name or ingredient"></label><button class="button button-secondary" id="open-generator" type="button">Generate a recipe</button><button class="button button-secondary" id="recipe-voice-toggle" type="button" aria-pressed="false">Create by voice</button></div>
+      <section id="recipe-voice-panel" class="panel voice-panel recipe-voice-panel" hidden aria-labelledby="recipe-voice-title"><div class="panel-head"><div><h2 id="recipe-voice-title">Create a recipe by voice</h2><p>Tell Sous what you’d like to cook. You’ll get a draft to review and save.</p></div></div><p class="voice-companion-status" id="recipe-voice-status" role="status" aria-live="polite">Voice is off.</p><p class="voice-mic-note">Audio isn’t saved.</p><ol class="voice-transcript" id="recipe-voice-transcript" aria-label="Temporary voice conversation" aria-live="polite" aria-relevant="additions text"></ol></section>
       <p id="library-status" class="page-status" role="status"></p><div id="recipe-library" class="recipe-library"></div>
       <section id="recipe-editor" class="panel editor-panel" hidden aria-labelledby="recipe-editor-title"><div class="panel-head"><div><h2 id="recipe-editor-title">Create recipe</h2><p>Review every instruction before saving.</p></div><button class="button button-ghost button-small" id="close-recipe-editor" type="button">Close</button></div>
         <form id="recipe-form" class="settings-form recipe-form"><input id="edit-recipe-id" type="hidden"><div class="recipe-meta-row"><div class="field"><label for="edit-recipe-name">Name</label><input id="edit-recipe-name" maxlength="120" required></div><div class="field"><label for="edit-recipe-description">Description</label><textarea id="edit-recipe-description" rows="2" maxlength="1000" required></textarea></div></div><div class="form-row recipe-details-row"><div class="field"><label for="edit-servings">Servings</label><input id="edit-servings" type="number" min="1" max="24" step="1" value="2"></div><div class="field"><label for="edit-equipment">Equipment</label><input id="edit-equipment" maxlength="1000" placeholder="Saucepan, oven"></div></div><div class="field recipe-editor-section"><label>Ingredients</label><p class="field-help">Add numeric amounts to adjust servings accurately; leave unknown amounts blank.</p><div id="ingredient-editor" class="ingredient-editor"></div><button class="button button-ghost button-small" id="add-ingredient" type="button">Add ingredient</button></div><div class="field recipe-editor-section"><label>Steps</label><div id="step-editor" class="step-editor"></div><button class="button button-ghost button-small" id="add-recipe-step" type="button">Add step</button></div><label class="check-choice" id="global-recipe-choice" hidden><input id="edit-global" type="checkbox"><span>Share as a global recipe (administrator only)</span></label><p class="settings-error" id="recipe-form-error" role="status" hidden></p><div class="settings-form-actions"><button class="button button-primary" type="submit">Save recipe</button><button class="button button-secondary" id="scale-recipe" type="button" hidden>Make a serving-size draft</button></div></form>
       </section>
-      <section id="generator-panel" class="panel editor-panel" hidden aria-labelledby="generator-title"><div class="panel-head"><div><h2 id="generator-title">Make a recipe with AI</h2><p>Your text is sent to the shared AWS Bedrock model.</p></div><button class="button button-ghost button-small" id="close-generator" type="button">Close</button></div><p id="generator-connection" class="settings-callout" role="status">Checking your AWS connection…</p><form id="generator-form" class="settings-form"><div class="field"><label for="generate-dish">What would you like to cook?</label><input id="generate-dish" maxlength="200" required></div><div class="field"><label for="generate-ingredients">Ingredients or constraints</label><textarea id="generate-ingredients" rows="3" placeholder="Use what I have, avoid extra shopping"></textarea></div><div class="field"><label for="generate-pantry">Pantry ingredients</label><textarea id="generate-pantry" rows="3"></textarea><p class="field-help">Pantry details are optional. They do not verify allergy safety.</p></div><div class="field"><label for="generate-equipment">Available equipment</label><textarea id="generate-equipment" rows="2"></textarea></div><div class="form-row"><div class="field"><label for="generate-servings">Servings</label><input id="generate-servings" type="number" min="1" max="24" value="2" required></div><div class="field"><label for="generate-time">Time budget (minutes)</label><input id="generate-time" type="number" min="1" max="1440" value="30" required></div></div><p class="settings-error" id="generator-error" role="status" hidden></p><button class="button button-primary" type="submit">Generate editable draft</button></form><div id="draft-warning" class="settings-callout" hidden role="status"></div></section>
+      <section id="generator-panel" class="panel editor-panel" hidden aria-labelledby="generator-title"><div class="panel-head"><div><h2 id="generator-title">Generate a recipe</h2><p>Describe what you’d like and edit the draft before saving.</p></div><button class="button button-ghost button-small" id="close-generator" type="button">Close</button></div><p id="generator-connection" class="settings-callout" role="status">Checking your AWS connection…</p><form id="generator-form" class="settings-form"><div class="field"><label for="generate-dish">What would you like to cook?</label><input id="generate-dish" maxlength="200" required></div><div class="field"><label for="generate-ingredients">Ingredients or constraints</label><textarea id="generate-ingredients" rows="3" placeholder="Use what I have, avoid extra shopping"></textarea></div><div class="field"><label for="generate-pantry">Pantry ingredients</label><textarea id="generate-pantry" rows="3"></textarea></div><div class="field"><label for="generate-equipment">Available equipment</label><textarea id="generate-equipment" rows="2"></textarea></div><div class="form-row"><div class="field"><label for="generate-servings">Servings</label><input id="generate-servings" type="number" min="1" max="24" value="2" required></div><div class="field"><label for="generate-time">Time budget (minutes)</label><input id="generate-time" type="number" min="1" max="1440" value="30" required></div></div><p class="settings-error" id="generator-error" role="status" hidden></p><button class="button button-primary" type="submit">Generate draft</button></form><div id="draft-warning" class="settings-callout" hidden role="status"></div></section>
     </section>
 
-    <section id="history-panel" class="v2-panel" hidden aria-labelledby="history-title"><header class="page-header"><div><h1 id="history-title">Cooking history</h1><p class="lede">Your sessions and private notes. Only you can see them.</p></div></header><p id="history-status" class="page-status" role="status"></p><div class="history-layout"><ol id="history-list" class="history-list"></ol><section id="history-detail" class="panel history-detail" hidden><h2 id="history-recipe-name"></h2><p id="history-date"></p><ol id="history-events"></ol><form id="history-note-form" class="settings-form"><label for="history-note">Private note</label><textarea id="history-note" maxlength="4000" rows="5"></textarea><button class="button button-secondary" type="submit">Save note</button><p id="history-note-status" role="status"></p></form></section></div></section>
+    <section id="history-panel" class="v2-panel" hidden aria-labelledby="history-title"><header class="page-header"><div><h1 id="history-title">Cooking history</h1><p class="lede">Your past cooks and notes.</p></div></header><p id="history-status" class="page-status" role="status"></p><div class="history-layout"><ol id="history-list" class="history-list"></ol><section id="history-detail" class="panel history-detail" hidden><h2 id="history-recipe-name"></h2><p id="history-date"></p><ol id="history-events"></ol><form id="history-note-form" class="settings-form"><label for="history-note">Private note</label><textarea id="history-note" maxlength="4000" rows="5"></textarea><button class="button button-secondary" type="submit">Save note</button><p id="history-note-status" role="status"></p></form></section></div></section>
 
     <section id="session-panel" class="session-panel" hidden aria-label="Cooking session">
       <header class="session-bar">
@@ -259,7 +259,7 @@
               <button class="button button-secondary button-small" id="monitoring-toggle" type="button">Resume guidance</button>
               <button class="button button-ghost button-small" id="end-session" type="button">End session</button>
             </div>
-            <p class="manual-caption">Step controls and timer work even when guidance is paused.</p>
+            
           </div>
         </section>
 
@@ -275,7 +275,7 @@
             <ul id="named-timer-list" class="named-timer-list"></ul>
           </section>
 
-          <section class="panel prep-panel" aria-labelledby="prep-heading"><div class="panel-head"><div><h2 id="prep-heading">Before you start</h2><p>Check off ingredients and equipment as you gather them.</p></div></div><ul id="prep-checklist" class="prep-checklist"></ul><p id="prep-status" class="field-help" role="status"></p></section>
+          <section class="panel prep-panel" aria-labelledby="prep-heading"><div class="panel-head"><div><h2 id="prep-heading">Before you start</h2></div></div><ul id="prep-checklist" class="prep-checklist"></ul><p id="prep-status" class="field-help" role="status"></p></section>
 
           <section class="panel camera-panel" aria-labelledby="camera-heading">
             <div class="panel-head"><div><h2 id="camera-heading">Camera</h2><p class="camera-caption"><span id="camera-caption">Camera is off</span><span class="thinking-dots" id="analysis-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
@@ -289,15 +289,15 @@
               <div class="camera-empty" id="camera-empty"><svg class="icon camera-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><p>Turn on the camera when you’re ready.</p></div>
             </div>
             <div class="camera-controls"><button class="button button-secondary button-small" id="camera-toggle" type="button">Turn on camera</button><button class="button button-secondary button-small" id="analyze-now" type="button" disabled>Analyze now</button></div>
-            <p class="field-help">When you analyze a look, a still image goes to the selected model. Sous saves observations, not images.</p>
+            
             <p id="camera-message" class="camera-message" role="status"></p>
           </section>
 
           <section class="panel observation-panel" id="observation-panel" aria-labelledby="observation-heading">
-            <div class="panel-head"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption">No camera observations yet</p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
+            <div class="panel-head"><div><h2 id="observation-heading">What Sous sees</h2><p id="observation-caption"></p></div><span class="confidence-pill" id="confidence-pill" hidden></span></div>
             <p class="monitoring-health" id="monitoring-health" data-state="unknown" role="status">No recent camera check.</p>
-            <div id="observation-content" class="observation-content"><p>Camera observations will appear here. They’re a helpful cue, never a food-safety check.</p></div>
-            <p class="observation-footnote">Confidence is a rough model signal, not a calibrated probability.</p>
+            <div id="observation-content" class="observation-content"><p>Nothing yet.</p></div>
+            
             <div id="advisory-alerts" class="advisory-alerts" aria-live="polite"></div>
           </section>
 
@@ -315,20 +315,20 @@
 
       <div class="lower-workspace">
         <section class="panel voice-panel" id="voice-panel" aria-labelledby="voice-heading">
-          <div class="panel-head"><div><h2 id="voice-heading">Voice companion</h2><p id="voice-support">Ask questions about this recipe and current step.</p></div><button class="button button-primary button-small" id="companion-toggle" type="button" aria-pressed="false">Start voice</button></div>
-          <p class="voice-companion-status" id="companion-status" role="status" aria-live="polite">Voice is off. Camera guidance and manual controls work independently.</p>
-          <p class="voice-mic-note">While voice is on, microphone audio streams to AWS Nova 2 Sonic and isn’t saved by Sous. Ask “what do you see?” and, with the camera and guidance on, Sous sends one still to the vision model to take a look. AWS charges may apply. Headphones help reduce echo.</p>
-          <ol class="voice-transcript" id="voice-transcript" aria-label="Temporary voice conversation" aria-live="polite" aria-relevant="additions text"><li class="voice-transcript-empty">Your conversation appears here while voice is on, then clears when you stop.</li></ol>
+          <div class="panel-head"><div><h2 id="voice-heading">Voice companion</h2><p id="voice-support">Talk to Sous hands-free.</p></div><button class="button button-primary button-small" id="companion-toggle" type="button" aria-pressed="false">Start voice</button></div>
+          <p class="voice-companion-status" id="companion-status" role="status" aria-live="polite">Voice is off.</p>
+          <p class="voice-mic-note">Try “what do you see?” with the camera on. Audio isn’t saved.</p>
+          <ol class="voice-transcript" id="voice-transcript" aria-label="Temporary voice conversation" aria-live="polite" aria-relevant="additions text"></ol>
           <div class="voice-fallback">
             <h3>Text and step commands</h3>
-            <p id="legacy-voice-support">Buttons and text work in every browser.</p>
+            <p id="legacy-voice-support" hidden></p>
             <div class="legacy-voice-controls"><button class="button button-secondary button-small" id="voice-toggle" type="button">Start listening</button><span id="voice-message" class="voice-message" role="status"></span></div>
             <form id="command-form" class="command-form"><label class="visually-hidden" for="command-input">Enter a cooking command</label><input id="command-input" type="text" autocomplete="off" placeholder="Try “next step” or “set timer for 1 minute”"><button class="button button-secondary button-small" type="submit">Send</button></form>
           </div>
         </section>
 
         <section class="panel event-panel" aria-labelledby="event-heading">
-          <div class="panel-head"><div><h2 id="event-heading">Session notes</h2><p>Recent changes and reminders</p></div></div>
+          <div class="panel-head"><div><h2 id="event-heading">Session notes</h2></div></div>
           <ol id="event-list" class="event-list"></ol>
         </section>
       </div>

@@ -113,13 +113,12 @@
     const selectedBedrockModel = Boolean(bedrock.model || (settings?.defaults?.provider === "bedrock" && settings.defaults.model));
     state.generationReady = vault.locked === false && bedrock.has_credentials === true && selectedBedrockModel;
     const note = $("#generator-connection");
-    note.textContent = state.generationReady
-      ? `Ready to use your AWS Bedrock connection${bedrock.model ? ` · ${bedrock.model}` : ""}. The generated recipe stays a private draft until you save it.`
-      : "Add your own AWS Bedrock connection, unlock its vault, and select a model in Settings before generating recipes.";
+    note.textContent = state.generationReady ? "" : "Recipe generation isn’t available right now. An administrator can set it up in Settings.";
+    note.hidden = state.generationReady;
     $("#generator-form button[type=submit]").disabled = !state.generationReady;
   }
   async function generateRecipe(event) {
-    event.preventDefault(); status("#generator-error", "Generating a draft with your saved AWS connection…");
+    event.preventDefault(); status("#generator-error", "Generating…");
     const profile = state.profile || {};
     const payload = { dish: $("#generate-dish").value.trim(), ingredients: lines($("#generate-ingredients").value), pantry: lines($("#generate-pantry").value), equipment: lines($("#generate-equipment").value), servings: Number($("#generate-servings").value), time_budget_minutes: Number($("#generate-time").value) };
     $("#generator-form button[type=submit]").disabled = true;
@@ -304,7 +303,7 @@
     }
     const labels = { paused: "Guidance is paused.", camera_off: "Camera is off; no current view is available.", pending: "Checking a camera snapshot…", recent: "Recent camera check.", stale: "The last camera check is getting old.", error: "The last camera check failed. Manual controls are ready.", obscured: "The camera view may be blocked.", unknown: "No recent camera check." };
     const at = health.last_success_at || session.latest_observation?.created_at;
-    node.textContent = `${labels[key] || labels.unknown}${at ? ` Last successful look: ${new Date(at * 1000).toLocaleTimeString()}.` : ""} Camera snapshots are intermittent; they cannot confirm food safety or detect every emergency.`;
+    node.textContent = `${labels[key] || labels.unknown}${at ? ` Last look ${new Date(at * 1000).toLocaleTimeString()}.` : ""}`;
     node.dataset.state = key || "unknown";
   }
   const spokenAlerts = new Set();
@@ -319,7 +318,7 @@
       const article = document.createElement("article"); article.className = `advisory-alert ${alert.category === "possible_emergency" ? "urgent" : "caution"}`;
       article.append(text("strong", alert.category === "possible_emergency" ? "Possible emergency — check the scene now" : "Possible hazard — please check"));
       article.append(text("h3", alert.title || "Camera observation"), text("p", alert.evidence || "The camera model flagged something to review."));
-      article.append(text("p", "This is an uncertain camera observation. Stay with the food and use your own judgment; Sous cannot contact emergency services."));
+      article.append(text("p", "Please check for yourself."));
       article.append(button("Acknowledge alert", `ack-alert:${alert.id}`)); host.append(article);
     }
   }
@@ -363,7 +362,7 @@
         const draft = { ...recipe }; delete draft.id; delete draft.scope;
         fillEditor(draft); $("#edit-global").checked = false; renderWarnings(warnings); state.draftWarnings = warnings;
         $("#recipe-voice-panel").hidden = false;
-        status("#recipe-form-error", "Voice draft ready. Review every ingredient, amount, time and temperature, then save it to your library.");
+        status("#recipe-form-error", "Draft ready. Review it, then save.");
       },
     });
     return recipeVoice;

@@ -26,7 +26,7 @@ MAX_RATE_RECORDS = 1024
 FIELDS = {"dish", "ingredients", "pantry", "equipment", "servings", "time_budget_minutes"}
 REQUIRED = {"dish", "servings", "time_budget_minutes"}
 
-REVIEW = "AI-generated recipe: review every ingredient, amount, time and temperature before cooking or saving."
+REVIEW = "Check amounts, times and temperatures before cooking."
 NO_QUANTITIES = "Some ingredients have no structured quantity, so this recipe cannot be scaled precisely."
 BAD_OUTPUT = "The model returned an unusable recipe. Try again or adjust your request."
 FAILED = "Recipe generation failed. Check your AWS connection and model in Settings, then try again."

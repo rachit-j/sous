@@ -196,7 +196,7 @@ class VoiceBrowserTests(unittest.TestCase):
     def start_voice(self):
         self.start_session()
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
+        self.page.get_by_text("Listening.", exact=True).wait_for()
 
     def test_start_audio_worklet_transcript_interruption_and_stop(self):
         self.start_voice()
@@ -232,7 +232,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.page.evaluate("window.__voiceSockets[0].receive({ type: 'interrupted' })")
         self.page.wait_for_function("window.__voicePlaybackStops > 0")
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Voice is off. Camera guidance and manual controls work independently.").wait_for()
+        self.page.get_by_text("Voice is off.", exact=True).wait_for()
         self.assertEqual(self.page.locator("#voice-transcript .voice-line").count(), 0)
         self.assertTrue(self.page.evaluate("window.__voiceSockets[0].closed"))
         self.assertTrue(self.page.evaluate("window.__syntheticTracks.every(track => track.readyState === 'ended')"))
@@ -297,7 +297,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.assertTrue(self.page.evaluate("window.__voiceSockets[0].closed"))
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
+        self.page.get_by_text("Listening.", exact=True).wait_for()
         self.page.evaluate("""() => {
           const raw = String.fromCharCode(0).repeat(30 * 24000 * 2 + 2);
           window.__voiceSockets.at(-1).receive({ type: 'audio', audio: btoa(raw) });
@@ -324,7 +324,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.page.evaluate("Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })")
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
+        self.page.get_by_text("Listening.", exact=True).wait_for()
         self.page.evaluate("""async () => {
           const token = document.querySelector('meta[name=csrf-token]').content;
           const passphrase = 'synthetic voice vault passphrase';
@@ -337,7 +337,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#voice-transcript .voice-line").count(), 0)
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
+        self.page.get_by_text("Listening.", exact=True).wait_for()
         self.page.locator("#end-session").click()
         self.page.locator("#completion-panel").wait_for(state="visible")
         self.assertIn("cooking session ended", self.page.locator("#companion-status").text_content())

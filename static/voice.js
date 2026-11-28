@@ -43,7 +43,7 @@
         return;
       }
       if (!sessionId || !navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode || !window.WebSocket) {
-        this.setStatus("This browser cannot start the voice companion. Text and cooking controls are still available.", "error");
+        this.setStatus("Voice isn’t supported in this browser.", "error");
         return;
       }
       const generation = ++this.generation;
@@ -147,13 +147,13 @@
       if (!message || typeof message.type !== "string") return;
       if (message.type === "ready") {
         this.ready = true;
-        this.setStatus("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.", "listening");
+        this.setStatus("Listening.", "listening");
       } else if (message.type === "audio" && typeof message.audio === "string") {
         this.playAudio(message.audio);
       } else if (message.type === "transcript" && (message.role === "user" || message.role === "assistant") && typeof message.text === "string") {
         this.updateTranscript(message.role, message.text, message.final === true);
         if (message.role === "assistant") {
-          this.setStatus("Sous is replying. Interrupt any time by talking.", "speaking");
+          this.setStatus("Sous is speaking.", "speaking");
           this.armSpeakingTimeout();
         } else this.setStatus("Listening…", "listening");
       } else if (message.type === "recipe_draft" && message.recipe && typeof message.recipe === "object") {
@@ -168,7 +168,7 @@
         try { this.socket?.send(JSON.stringify(reply)); } catch { /* socket closing */ }
       } else if (message.type === "interrupted") {
         this.flushPlayback();
-        this.setStatus("Listening. Ask another question or interrupt at any time.", "listening");
+        this.setStatus("Listening.", "listening");
       } else if (message.type === "stopped") {
         const reason = message.reason === "locked" ? "AWS settings were locked. Voice has stopped." : "Voice session ended. Start it again when you’re ready.";
         this.stop(reason, true);
@@ -226,12 +226,12 @@
           if (!this.playbackSources.size && this.active) {
             clearTimeout(this.speakingTimer);
             this.speakingTimer = null;
-            this.setStatus("Listening. Ask another question or interrupt at any time.", "listening");
+            this.setStatus("Listening.", "listening");
           }
         };
         source.start(start);
         this.playbackCursor = start + seconds;
-        this.setStatus("Speaking. Interrupt any time by talking.", "speaking");
+        this.setStatus("Sous is speaking.", "speaking");
         clearTimeout(this.speakingTimer);
         this.speakingTimer = null;
       } catch { /* malformed audio frames are ignored */ }
@@ -259,7 +259,7 @@
       this.speakingTimer = setTimeout(() => {
         this.speakingTimer = null;
         if (this.active && !this.playbackSources.size) {
-          this.setStatus("Listening. Ask another question or interrupt at any time.", "listening");
+          this.setStatus("Listening.", "listening");
         }
       }, 15000);
     }

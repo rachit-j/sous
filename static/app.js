@@ -132,6 +132,7 @@
       $("#model-input").value = "";
     }
     updateModelDefault(applySavedDefaults || providerChanged);
+    $("#provider-overrides").hidden = !state.auth?.user?.is_admin;  // per-cook model override: admins only
     updateRecipePeek();
     renderGuidanceSummary();
     updateStartAvailability();
@@ -994,7 +995,7 @@
     const pill = $("#confidence-pill");
     host.replaceChildren();
     if (!observation) {
-      $("#observation-caption").textContent = state.camera ? "Waiting for the first look" : "No camera observations yet";
+      $("#observation-caption").textContent = state.camera ? "Waiting for the first look" : "Nothing yet";
       pill.hidden = true;
       const empty = document.createElement("p");
       empty.textContent = "Camera observations will appear here. They’re a helpful cue, never a food-safety check.";
@@ -1200,7 +1201,7 @@
     $("#analyze-now").disabled = true;
     $("#camera-caption").textContent = "Analyzing";
     setAnalysisPending(true);
-    setCameraMessage("Analyzing… This first look can take a little longer while the local model wakes up.");
+    setCameraMessage("Analyzing…");
     try {
       const session = await post(`/api/sessions/${sessionId}/observations`, { image, revision }, { signal: controller.signal });
       if (isCurrentObservation() && session.revision >= state.session.revision) {
@@ -1337,10 +1338,6 @@
     const list = $("#voice-transcript");
     list.replaceChildren();
     if (!entries.length) {
-      const empty = document.createElement("li");
-      empty.className = "voice-transcript-empty";
-      empty.textContent = "Your conversation appears here while voice is on, then clears when you stop.";
-      list.append(empty);
       return;
     }
     entries.forEach((entry) => {
@@ -1379,7 +1376,7 @@
     }
   }
 
-  function stopVoiceCompanion(message = "Voice is off. Camera guidance and manual controls work independently.") {
+  function stopVoiceCompanion(message = "Voice is off.") {
     state.companion?.stop(message);
   }
 

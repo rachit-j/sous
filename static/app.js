@@ -1159,6 +1159,20 @@
     else $("#observation-panel").removeAttribute("aria-busy");
   }
 
+  // One still for the voice companion's look_at_camera tool; null when the camera is off, guidance
+  // is paused, the tab is hidden or the video is not ready. The server rechecks guidance itself.
+  function captureLookFrame() {
+    const video = $("#camera-video");
+    if (!state.session || !state.camera || !state.session.monitoring || document.visibilityState !== "visible") return null;
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) return null;
+    const scale = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.75);
+  }
+
   async function captureAndAnalyze(manual) {
     if (state.settingsView || !state.session || !state.recipe || !state.camera || !state.session.monitoring || document.visibilityState !== "visible" || state.observationInFlight) return;
     const video = $("#camera-video");
@@ -1375,6 +1389,7 @@
       onTranscript: renderCompanionTranscript,
       onClear: () => renderCompanionTranscript([]),
       onActive: setCompanionActive,
+      onFrameRequest: captureLookFrame,
     });
     $("#companion-toggle").addEventListener("click", () => {
       if (state.companion.running) {

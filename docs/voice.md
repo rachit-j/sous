@@ -50,3 +50,15 @@ See [Settings](settings.md), [API](api.md), [plan](../PLAN.md), [status](../STAT
 ## Guidance modes
 
 V3 ([F3](v3.md#f3-mixed-initiative-modes)). Every context update carries the cook's guidance mode. In *keep an eye out* (monitoring) mode, step changes are not narrated; timers, named timers, camera alerts and mode changes still are. In *talk me through it* (assistive) mode, each new step is introduced. Modes never let voice change cooking state.
+
+
+## Camera look
+
+V3 ([F5](v3.md#f5-voice-can-look-at-the-camera)). Nova 2 Sonic takes speech only, so the companion "sees" through a second read-only tool, `look_at_camera` (optional `question`, ≤300 characters).
+
+1. Sonic calls the tool. The request thread checks the session is active and guidance is on (otherwise it answers that it could not look), and applies limits: at most 8 looks per stream, 4 s apart, one at a time.
+2. The server sends `{"type": "frame_request", "id"}` on this socket. Only this cook's browser answers, with `{"type": "frame", "id", "image": "data:image/jpeg;base64,…"}` from the camera that is already on, or `{"type": "frame", "id", "error": "camera_off"}`. Frames are limited to 1 MiB of JPEG (the socket's message limit is raised to fit). Late or mismatched frames are ignored, and a frame that does not arrive within 6 s counts as camera off.
+3. A worker thread runs one Bedrock Converse vision call with the session's model and the shared connection. It has its own short "eyes" prompt with the current step and its visual cue, so audio keeps flowing meanwhile. Timeout is 40 s.
+4. Sonic receives `{look, taken: "just now", note}` or `{error}` and answers aloud. The persona says to describe only that result as something seen just now, that it may be wrong, and that it can never confirm doneness or food safety.
+
+Frames and descriptions are never stored or logged. Looks never change steps, confirmations, observations or alerts; automatic progression stays with the monitoring loop. A vault lock, settings change, logout or session end stops the stream as before, and any look in flight is discarded.

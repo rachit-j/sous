@@ -380,7 +380,7 @@ class VoiceStreamTests(VoiceTestCase):
         self.assertEqual(prompt["audioOutputConfiguration"]["voiceId"], "matthew")
         self.assertEqual(prompt["audioOutputConfiguration"]["sampleRateHertz"], 24000)
         self.assertEqual([tool["toolSpec"]["name"] for tool in prompt["toolConfiguration"]["tools"]],
-                         [voice.TOOL_NAME])  # only the bounded read-only context lookup
+                         [voice.TOOL_NAME, voice.LOOK_TOOL])  # only the bounded read-only tools
         starts = stream.payload("contentStart")
         self.assertEqual([(s["type"], s["role"], s["interactive"]) for s in starts[:3]],
                          [("TEXT", "SYSTEM", False), ("AUDIO", "USER", True), ("TEXT", "USER", True)])
@@ -388,7 +388,8 @@ class VoiceStreamTests(VoiceTestCase):
         recipe = self.session["recipe"]
         system = stream.texts("SYSTEM")[0]
         self.assertIn(recipe["name"], system)
-        self.assertIn("cannot see the kitchen", system)
+        self.assertIn("no live video", system)
+        self.assertIn("never as something you see now", system)
         self.assertIn(recipe["steps"][0]["title"], stream.texts("USER")[0])
         audio = stream.payload("audioInput")[0]
         self.assertEqual((audio["contentName"], base64.b64decode(audio["content"])),
@@ -795,6 +796,137 @@ class VoiceStreamTests(VoiceTestCase):
             lingering._thread.join(2)
             self.assertFalse(lingering._thread.is_alive())
             self.assertEqual([t for t in threading.enumerate() if t.name == "sous-voice"], [])
+
+
+FRAME = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9").decode()
+
+
+class CameraLookTests(VoiceTestCase):
+    """look_at_camera (docs/v3.md F5): one fresh frame from the cook's own browser, one mocked vision
+    call, a spoken advisory answer, and no cooking-state change. No AWS, camera or network."""
+
+    def setUp(self):
+        super().setUp()
+        self.ready_app()
+        self.session = self.act(self.session["id"], "resume")  # looking requires guidance on
+        self.described = []
+        self.reply = "The eggs look glossy and mostly set."
+
+        def describe(model, jpeg, question, context, connection):
+            self.described.append((model, jpeg, question, context, connection.access_key_id))
+            if isinstance(self.reply, Exception):
+                raise self.reply
+            return self.reply
+        self.app.extensions["sous_voice"]["describe_frame"] = describe
+
+    def ask_look(self, stream, n=1, question="Do the eggs look done?"):
+        key = f"look-content-{n}"
+        stream.push(
+            event("contentStart", contentId=key, type="TOOL", role="ASSISTANT"),
+            event("toolUse", contentId=key, toolName=voice.LOOK_TOOL, toolUseId=f"look_{n}",
+                  content=json.dumps({"question": question})),
+            event("contentEnd", contentId=key, type="TOOL", stopReason="TOOL_USE"),
+        )
+
+    def frame_requests(self, ws):
+        return [m for m in ws.sent if m.get("type") == "frame_request"]
+
+    def look(self, *browser_steps, stream=None, n=1):
+        stream = stream or FakeStream()
+        self.install(stream)
+        ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(),
+                    run(lambda: self.ask_look(stream, n)), *browser_steps,
+                    lambda w: len(stream.payload("toolResult")) >= n, json.dumps({"type": "stop"}))
+        before = self.session_state()
+        self.serve(ws)
+        self.assertEqual(self.session_state(), before)  # a look never changes cooking state
+        return ws, json.loads(stream.payload("toolResult")[n - 1]["content"]), stream
+
+    def session_state(self):
+        with self.app.test_request_context("/"):
+            row = get_db().execute("SELECT step_index, revision, completion_streak, latest_observation,"
+                                   " timer_deadline FROM sessions WHERE id = ?", (self.session["id"],)).fetchone()
+            alerts = get_db().execute("SELECT COUNT(*) FROM session_alerts").fetchone()[0]
+            observations = get_db().execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+        return tuple(row), alerts, observations
+
+    def test_fresh_frame_is_described_and_spoken_without_storing_anything(self):
+        ws, result, stream = self.look(
+            lambda w: bool(self.frame_requests(w)),
+            json.dumps({"type": "frame", "id": 1, "image": FRAME}))
+        self.assertEqual(self.frame_requests(ws), [{"type": "frame_request", "id": 1}])
+        self.assertEqual(result["look"], self.reply)
+        self.assertEqual(result["taken"], "just now")
+        self.assertIn("cannot confirm doneness or food safety", result["note"])
+        model, jpeg, question, context, key_id = self.described[0]
+        self.assertEqual((model, jpeg[:3], question, key_id), (self.session["model"], b"\xff\xd8\xff",
+                                                               "Do the eggs look done?", KEY_ID))
+        self.assertIn(self.session["recipe"]["steps"][0]["visual_cue"], context)
+        self.assertNotIn(FRAME, json.dumps(ws.sent))  # the frame is never echoed
+        with open(self.db_path, "rb") as fh:
+            self.assertNotIn(self.reply.encode(), fh.read())  # descriptions are not stored
+        prompt = stream.texts("SYSTEM")[0]
+        self.assertIn(voice.LOOK_TOOL, prompt)
+        self.assertIn("saw just now", prompt)
+
+    def test_camera_off_or_unusable_frame_fails_closed(self):
+        _, result, _ = self.look(lambda w: bool(self.frame_requests(w)),
+                                 json.dumps({"type": "frame", "id": 1, "error": "camera_off"}))
+        self.assertEqual(result, {"error": voice.LOOK_CAMERA_OFF})
+        _, result, _ = self.look(lambda w: bool(self.frame_requests(w)),
+                                 json.dumps({"type": "frame", "id": 1, "image": "data:image/png;base64,AAAA"}))
+        self.assertEqual(result, {"error": voice.LOOK_FAILED})
+        self.reply = RuntimeError("upstream detail sk-leak")
+        _, result, _ = self.look(lambda w: bool(self.frame_requests(w)),
+                                 json.dumps({"type": "frame", "id": 1, "image": FRAME}))
+        self.assertEqual(result, {"error": voice.LOOK_FAILED})
+        self.assertNotIn("sk-leak", json.dumps(result))
+
+    def test_missing_frame_times_out_and_stale_frames_are_ignored(self):
+        with mock.patch.object(voice, "FRAME_TIMEOUT", 0.2):
+            _, result, _ = self.look(lambda w: bool(self.frame_requests(w)),
+                                     json.dumps({"type": "frame", "id": 7, "image": FRAME}))  # wrong id
+        self.assertEqual(result, {"error": voice.LOOK_CAMERA_OFF})
+        self.assertEqual(self.described, [])
+
+    def test_paused_guidance_never_requests_a_frame(self):
+        self.act(self.session["id"], "pause")
+        self.session = self.client.get(f"/api/sessions/{self.session['id']}").get_json()
+        ws, result, _ = self.look()
+        self.assertEqual(result, {"error": voice.LOOK_PAUSED})
+        self.assertEqual(self.frame_requests(ws), [])
+
+    def test_looks_are_rate_limited_per_stream(self):
+        stream = FakeStream()
+        with mock.patch.multiple(voice, MAX_LOOKS=1, LOOK_SPACING=0):
+            self.install(stream)
+            ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(),
+                        run(lambda: self.ask_look(stream, 1)), lambda w: bool(self.frame_requests(w)),
+                        json.dumps({"type": "frame", "id": 1, "image": FRAME}),
+                        lambda w: len(stream.payload("toolResult")) >= 1,
+                        run(lambda: self.ask_look(stream, 2)),
+                        lambda w: len(stream.payload("toolResult")) >= 2, json.dumps({"type": "stop"}))
+            self.serve(ws)
+        second = json.loads(stream.payload("toolResult")[1]["content"])
+        self.assertEqual(second, {"error": voice.LOOK_LIMIT})
+        self.assertEqual(len(self.frame_requests(ws)), 1)
+        self.assertEqual(len(self.described), 1)
+
+    def test_invalid_look_arguments_and_oversized_messages_are_rejected(self):
+        stream = FakeStream()
+        self.install(stream)
+        ws = FakeWS(start_message(self.token), lambda w: "ready" in w.types(),
+                    run(lambda: stream.push(
+                        event("contentStart", contentId="bad", type="TOOL", role="ASSISTANT"),
+                        event("toolUse", contentId="bad", toolName=voice.LOOK_TOOL, toolUseId="bad_1",
+                              content=json.dumps({"question": "x" * 400})),
+                        event("contentEnd", contentId="bad", type="TOOL", stopReason="TOOL_USE"))),
+                    lambda w: "toolResult" in stream.kinds(),
+                    json.dumps({"type": "frame", "id": 1, "image": "x" * (voice.MAX_FRAME_MESSAGE + 10)}))
+        sent = self.serve(ws)
+        self.assertIn("error", json.loads(stream.payload("toolResult")[0]["content"]))
+        self.assertEqual(self.frame_requests(ws), [])
+        self.assertEqual(sent[-1], {"type": "error", "message": voice.BAD_MESSAGE})
 
 
 class BridgeMappingTests(SettingsTestCase):

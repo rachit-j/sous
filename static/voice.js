@@ -8,7 +8,8 @@
   const MAX_TRANSCRIPT_CHARS = 6000;
 
   class VoiceCompanion {
-    constructor({ onStatus, onTranscript, onClear, onActive }) {
+    constructor({ onStatus, onTranscript, onClear, onActive, onFrameRequest }) {
+      this.onFrameRequest = onFrameRequest;  // () => JPEG data URL or null (camera off/not ready)
       this.onStatus = onStatus;
       this.onTranscript = onTranscript;
       this.onClear = onClear;
@@ -144,7 +145,7 @@
       if (!message || typeof message.type !== "string") return;
       if (message.type === "ready") {
         this.ready = true;
-        this.setStatus("Listening. Ask about this recipe, step, or latest camera observation.", "listening");
+        this.setStatus("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.", "listening");
       } else if (message.type === "audio" && typeof message.audio === "string") {
         this.playAudio(message.audio);
       } else if (message.type === "transcript" && (message.role === "user" || message.role === "assistant") && typeof message.text === "string") {
@@ -153,6 +154,14 @@
           this.setStatus("Sous is replying. Interrupt any time by talking.", "speaking");
           this.armSpeakingTimeout();
         } else this.setStatus("Listening…", "listening");
+      } else if (message.type === "frame_request" && Number.isInteger(message.id)) {
+        // look_at_camera (docs/v3.md F5): one still from the camera that is already on; never the
+        // microphone stream, and nothing is kept here.
+        let image = null;
+        try { image = this.onFrameRequest ? this.onFrameRequest() : null; } catch { image = null; }
+        const reply = image ? { type: "frame", id: message.id, image } : { type: "frame", id: message.id, error: "camera_off" };
+        if (image) this.setStatus("Sous is taking a look…", "speaking");
+        try { this.socket?.send(JSON.stringify(reply)); } catch { /* socket closing */ }
       } else if (message.type === "interrupted") {
         this.flushPlayback();
         this.setStatus("Listening. Ask another question or interrupt at any time.", "listening");

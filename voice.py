@@ -33,7 +33,8 @@ OUTPUT_SAMPLE_RATE = 24000
 
 MAX_AUDIO_FRAME = 16000  # bytes: 0.5 s of PCM16 mono 16 kHz
 MAX_CONTROL_BYTES = 2048
-MAX_SOCKET_MESSAGE = 64 * 1024  # simple-websocket closes the socket on larger messages
+MAX_FRAME_MESSAGE = 1536 * 1024  # one camera frame for look_at_camera (base64 JPEG data URL)
+MAX_SOCKET_MESSAGE = MAX_FRAME_MESSAGE + 1024  # simple-websocket closes the socket on larger messages
 MAX_UPSTREAM_EVENT = 1024 * 1024
 MAX_OUTPUT_AUDIO = 256 * 1024  # decoded bytes per upstream audio event
 MAX_TRANSCRIPT = 2000
@@ -54,9 +55,29 @@ START_LIMIT, START_WINDOW = 6, 60.0
 UPDATE_PREFIX = "[Sous update]"
 SDK_PROFILE = "sous-voice"
 MAX_CONTENTS = 32  # per-content role/stage entries kept for interleaved output
-# The only tool: zero-argument, read-only, answered by the request thread from the database.
+# Read-only tools answered by the request thread: cooking context from the database, and one fresh
+# camera look (docs/v3.md F5). Neither can change cooking state.
 TOOL_NAME = "get_cooking_context"
 TOOL_SCHEMA = json.dumps({"type": "object", "properties": {}, "required": []})
+LOOK_TOOL = "look_at_camera"
+LOOK_SCHEMA = json.dumps({"type": "object", "properties": {"question": {
+    "type": "string", "description": "What the cook wants to know about the scene, in their words."}},
+    "required": []})
+MAX_LOOK_QUESTION = 300
+MAX_LOOKS = 8  # paid vision calls per voice stream
+LOOK_SPACING = 4.0  # seconds between looks
+FRAME_TIMEOUT = 6.0  # seconds for the browser to return a frame
+LOOK_TIMEOUT = 40.0  # seconds for the vision model
+MAX_LOOK_TEXT = 600
+MAX_FRAME_BYTES = 1024 * 1024
+JPEG_DATA_PREFIX = "data:image/jpeg;base64,"
+LOOK_CAMERA_OFF = ("The camera is off or not ready, so you could not look. Tell the cook to turn on the "
+                   "camera if they want you to look.")
+LOOK_PAUSED = ("Camera guidance is paused, so you could not look. The cook can resume guidance if they "
+               "want you to look.")
+LOOK_FAILED = "You could not get a clear look just now. Say so briefly and suggest the cook check for themselves."
+LOOK_LIMIT = "You have looked too often in this conversation. Ask the cook to check for themselves."
+LOOK_BUSY = "You are already looking. Wait for that result."
 TOOL_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MAX_TOOL_INPUT = 1024  # bytes of accumulated toolUse content per call
 MAX_PENDING_TOOLS = 4
@@ -97,8 +118,11 @@ PERSONA = (
     "Speak naturally in one to three short sentences, without lists or markdown. "
     "You only advise: you cannot change steps, timers, monitoring or anything in the app. If the cook "
     "asks you to, tell them to use the on-screen controls. "
-    "You cannot see the kitchen and have no live video. Camera notes are earlier automated snapshots "
-    "with their age; describe them as earlier observations, never as something you see now. "
+    "You have no live video. When the cook asks what you can see, or whether something looks ready, "
+    f"call {LOOK_TOOL} once with their question; it takes one fresh camera still and returns a short "
+    "description. Describe only what that result says, as something you saw just now, and say it may be "
+    "wrong. A look can never confirm doneness or food safety. Other camera notes are earlier automated "
+    "snapshots with their age; describe them as earlier observations, never as something you see now. "
     "Camera notes cannot confirm food safety; for safety questions suggest a thermometer or trusted "
     f"guidance. Messages starting with {UPDATE_PREFIX} come from the app, not the cook; respond to "
     "them briefly and do not repeat earlier camera notes unless asked. "
@@ -130,7 +154,8 @@ def new_state():
     return {"pending": threading.BoundedSemaphore(MAX_PENDING), "active": threading.Lock(),
             "starts": collections.deque(maxlen=START_LIMIT), "starts_lock": threading.Lock(),
             "lingering": None,  # bridge that outlived its shutdown budget; blocks new streams
-            "open_stream": SonicStream.open}
+            "open_stream": SonicStream.open,
+            "describe_frame": None}  # None: providers.describe_frame; tests replace it
 
 
 def voice_status(vault):
@@ -321,6 +346,12 @@ def setup_events(prompt, audio_content, voice_id, instructions):
                 "description": ("Read the current cooking step, timers, latest camera note and unacknowledged"
                                 " advisory camera alerts when asked."),
                 "inputSchema": {"json": TOOL_SCHEMA},
+            }}, {"toolSpec": {
+                "name": LOOK_TOOL,
+                "description": ("Take one fresh still from the cook's camera and describe what is visible,"
+                                " focused on the cook's question. Use only when the cook asks what you see"
+                                " or whether something looks ready."),
+                "inputSchema": {"json": LOOK_SCHEMA},
             }}]},
         }),
         *text_content(prompt, "SYSTEM", instructions, interactive=False),
@@ -829,12 +860,18 @@ class VoiceBridge:
         self._tool_calls += 1
         tool_id = item["tool_use_id"]
         valid_id = isinstance(tool_id, str) and TOOL_ID.fullmatch(tool_id)
-        valid_name = item["tool_name"] == TOOL_NAME
+        name = item["tool_name"]
+        valid_name = name in (TOOL_NAME, LOOK_TOOL)
         try:
             args = json.loads(item["content"] or "{}")
         except (ValueError, TypeError):
             args = None
-        valid_args = isinstance(args, dict) and not args
+        question = args.get("question", "") if isinstance(args, dict) else None
+        if name == LOOK_TOOL:
+            valid_args = (isinstance(args, dict) and set(args) <= {"question"} and isinstance(question, str)
+                          and len(question) <= MAX_LOOK_QUESTION)
+        else:
+            valid_args = isinstance(args, dict) and not args
         if self._tool_calls > MAX_TOOL_CALLS:
             result = {"error": "Request limit reached."}
         elif not valid_name or not valid_args or item["content"] == "!invalid!":
@@ -843,7 +880,10 @@ class VoiceBridge:
             result = None  # controller reads fresh server state on its request thread
         if not valid_id:
             return
-        if result is None:
+        if result is None and name == LOOK_TOOL:
+            self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id,
+                        "tool": LOOK_TOOL, "question": clean_text(question, MAX_LOOK_QUESTION)})
+        elif result is None:
             self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id})
         else:
             self._emit({"type": CONTEXT_REQUEST, "content_name": str(uuid.uuid4()), "tool_use_id": tool_id,
@@ -960,6 +1000,104 @@ def _allow_start(state):
         return True
 
 
+def default_describe(model, jpeg, question, context, connection):
+    import providers  # lazy: the providers module needs boto3
+    return providers.describe_frame(model, jpeg, question, context, connection)
+
+
+def decode_frame(image):
+    """JPEG bytes from a browser data URL, or None when it is not a bounded JPEG."""
+    if not isinstance(image, str) or not image.startswith(JPEG_DATA_PREFIX):
+        return None
+    try:
+        data = base64.b64decode(image[len(JPEG_DATA_PREFIX):], validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not data or len(data) > MAX_FRAME_BYTES or not data.startswith(b"\xff\xd8\xff"):
+        return None
+    return data
+
+
+def look_context(recipe, row):
+    step = recipe["steps"][row["step_index"]]
+    return clean_text(f"Recipe: {recipe['name']}. Current step {row['step_index'] + 1}: {step['title']}. "
+                      f"{step['instruction']} What done looks like: {step['visual_cue']}", 1200)
+
+
+class CameraLook:
+    """One fresh camera look for the voice companion (docs/v3.md F5).
+
+    The request thread asks the cook's own browser for one frame over this socket, then runs one
+    vision call on a worker thread so audio keeps flowing. Frames and descriptions are never stored
+    or logged, nothing here touches cooking state, and at most one look runs at a time.
+    """
+
+    def __init__(self, describe, connection):
+        self.describe, self.connection = describe, connection
+        self.count, self.last, self.next_id, self.pending = 0, None, 0, None
+
+    def begin(self, request, row, recipe, now):
+        """Returns (browser message or None, (content_name, tool_use_id, result) or None)."""
+        answer = lambda result: (None, (request["content_name"], request["tool_use_id"], result))
+        if self.pending is not None:
+            return answer({"error": LOOK_BUSY})
+        if self.count >= MAX_LOOKS or (self.last is not None and now - self.last < LOOK_SPACING):
+            return answer({"error": LOOK_LIMIT})
+        if not row["monitoring"]:
+            return answer({"error": LOOK_PAUSED})
+        self.count, self.last, self.next_id = self.count + 1, now, self.next_id + 1
+        self.pending = {"id": self.next_id, "content_name": request["content_name"],
+                        "tool_use_id": request["tool_use_id"], "question": request.get("question", ""),
+                        "model": row["model"], "context": look_context(recipe, row),
+                        "deadline": now + FRAME_TIMEOUT, "thread": None, "holder": {}}
+        return {"type": "frame_request", "id": self.next_id}, None
+
+    def frame(self, body, now):
+        """Handle a browser frame reply; ignores replies that are not for the pending look."""
+        pending = self.pending
+        if pending is None or pending["thread"] is not None or body.get("id") != pending["id"]:
+            return None
+        jpeg = decode_frame(body.get("image")) if "image" in body else None
+        if jpeg is None:
+            return self._done(LOOK_CAMERA_OFF if body.get("error") == "camera_off" or "image" not in body
+                              else LOOK_FAILED)
+        holder = pending["holder"]
+
+        def work():
+            try:
+                holder["text"] = self.describe(pending["model"], jpeg, pending["question"], pending["context"],
+                                               self.connection)
+            except Exception as exc:  # provider failure: static message only
+                logger.warning("Voice camera look failed: %s", type(exc).__name__)
+                holder["error"] = True
+
+        pending["thread"] = threading.Thread(target=work, name="sous-voice-look", daemon=True)
+        pending["deadline"] = now + LOOK_TIMEOUT
+        pending["thread"].start()
+        return None
+
+    def poll(self, now):
+        pending = self.pending
+        if pending is None:
+            return None
+        thread = pending["thread"]
+        if thread is None:
+            return self._done(LOOK_CAMERA_OFF) if now >= pending["deadline"] else None
+        if thread.is_alive():
+            return self._done(LOOK_FAILED) if now >= pending["deadline"] else None
+        text = clean_text(str(pending["holder"].get("text") or ""), MAX_LOOK_TEXT)
+        if pending["holder"].get("error") or not text:
+            return self._done(LOOK_FAILED)
+        return self._done(None, text)
+
+    def _done(self, error, text=None):
+        pending, self.pending = self.pending, None
+        result = {"error": error} if error else {
+            "look": text, "taken": "just now",
+            "note": "One still image; it may be wrong and cannot confirm doneness or food safety."}
+        return pending["content_name"], pending["tool_use_id"], result
+
+
 def _valid_pcm(data):
     return 2 <= len(data) <= MAX_AUDIO_FRAME and len(data) % 2 == 0
 
@@ -970,6 +1108,7 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
     at = clock()
     watcher = SessionWatcher(db, session_id, recipe, row, at)
     bridge = VoiceBridge(open_stream, connection, voice_id, system_prompt(recipe), greeting(recipe, row, at))
+    look = CameraLook(state.get("describe_frame") or default_describe, connection)
     bridge.start()
     started = last_audio = time.monotonic()
     next_poll = started + POLL_INTERVAL
@@ -982,6 +1121,17 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                 if message["type"] == CONTEXT_REQUEST:
                     if "result" in message:
                         result = message["result"]
+                    elif message.get("tool") == LOOK_TOOL:
+                        fresh = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+                        if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"]:
+                            result = {"error": NOT_ACTIVE}
+                        else:
+                            request, answered = look.begin(message, fresh, json.loads(fresh["recipe_snapshot"]),
+                                                           time.monotonic())
+                            if request is not None:
+                                ws.send(json.dumps(request))  # the cook's own browser supplies the frame
+                                continue
+                            result = answered[2]
                     else:
                         fresh = db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
                         if fresh is None or fresh["status"] != "active" or not fresh["recipe_snapshot"]:
@@ -1002,6 +1152,10 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                     terminal = bridge.terminal()
                 continue
             now = time.monotonic()
+            looked = look.poll(now)
+            if looked is not None and not bridge.answer_context(*looked):
+                terminal = _error(SLOW)
+                break
             current_epoch, current = vault.lease()  # in-memory only; never an ambient lookup
             if now - started >= MAX_STREAM_SECONDS:
                 terminal = {"type": "stopped", "reason": "time_limit"}
@@ -1033,10 +1187,16 @@ def _run(ws, state, open_stream, db, session_id, row, vault, epoch, connection, 
                     if not bridge.send_audio(bytes(message)):
                         terminal = _error(SLOW)
                     last_audio = time.monotonic()
-            elif len(message) <= MAX_CONTROL_BYTES and _json_object(message) == {"type": "stop"}:
-                terminal = {"type": "stopped", "reason": "client_stop"}
             else:
-                terminal = _error(BAD_MESSAGE)
+                body = _json_object(message) if len(message) <= MAX_FRAME_MESSAGE else None
+                if body is not None and body.get("type") == "frame" and set(body) <= {"type", "id", "image", "error"}:
+                    looked = look.frame(body, time.monotonic())
+                    if looked is not None and not bridge.answer_context(*looked):
+                        terminal = _error(SLOW)
+                elif len(message) <= MAX_CONTROL_BYTES and body == {"type": "stop"}:
+                    terminal = {"type": "stopped", "reason": "client_stop"}
+                else:
+                    terminal = _error(BAD_MESSAGE)
     finally:
         bridge.stop()
         if not bridge.join(SHUTDOWN_TIMEOUT):

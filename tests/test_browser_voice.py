@@ -15,6 +15,7 @@ from pathlib import Path
 from werkzeug.serving import make_server
 
 from app import create_app
+from tests.support import ready_shared_vault
 
 ARTIFACTS = os.environ.get("SOUS_ARTIFACTS", os.path.join(tempfile.gettempdir(), "sous-webkit-artifacts"))
 
@@ -48,6 +49,7 @@ class VoiceBrowserTests(unittest.TestCase):
             "SECRET_KEY": "voice-browser-test-secret",
             "RECIPE_DIR": str(recipes),
         })
+        ready_shared_vault(app)  # V3: one synthetic shared Bedrock connection
         self.server = make_server("127.0.0.1", 0, app, threaded=True)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()

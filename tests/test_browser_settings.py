@@ -245,6 +245,8 @@ class SettingsBrowserTests(unittest.TestCase):
 
     def test_settings_navigation_pauses_and_keeps_manual_cooking_controls(self):
         page = self.page
+        self._initialize_and_save_connection()  # V3: cooking needs the shared Bedrock connection
+        page.locator("#nav-cooking").click()
         page.locator("#provider-overrides > summary").click()
         page.locator("#model-input").fill("synthetic-model")
         page.locator("#start-session").click()
@@ -356,6 +358,8 @@ class SettingsBrowserTests(unittest.TestCase):
 
     def test_settings_navigation_invalidates_pending_camera_permission(self):
         page = self.page
+        self._initialize_and_save_connection()  # V3: cooking needs the shared Bedrock connection
+        page.locator("#nav-cooking").click()
         page.locator("#provider-overrides > summary").click()
         page.locator("#model-input").fill("synthetic-model")
         page.locator("#start-session").click()

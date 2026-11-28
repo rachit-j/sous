@@ -23,7 +23,7 @@ class SousV2AccountBrowserTests(unittest.TestCase):
 
     def setUp(self):
         from app import create_app
-from tests.support import ready_shared_vault
+        from tests.support import ready_shared_vault
         from werkzeug.serving import make_server
 
         self.temp = tempfile.TemporaryDirectory(prefix="sous-v2-accounts-", dir=tempfile.gettempdir())

@@ -23,7 +23,6 @@ SYNTHETIC_PASSPHRASE = "sous verify synthetic passphrase"
 SYNTHETIC_ACCESS_KEY = "AKIA1234567890TEST"
 SYNTHETIC_SECRET_KEY = "synthetic-container-secret-key"
 # Synthetic shared connection saved through the admin API; saving never contacts AWS.
-VAULT_PASSPHRASE = "sous-verify-synthetic-vault-passphrase"
 SYNTHETIC_CONNECTION = {"region": "us-east-1", "model": "amazon.nova-lite-v1:0",
                         "access_key_id": "AKIASYNTHETIC0000001", "secret_access_key": "synthetic-secret-access-key"}
 _verified_fixture = False
@@ -108,7 +107,7 @@ class ContainerTestCase(unittest.TestCase):
         vault = self.api("GET", "/api/settings").json()["vault"]
         path = "/api/settings/unlock" if vault["initialized"] else "/api/settings/vault"
         if vault["locked"]:
-            resp = self.api("POST", path, json={"passphrase": VAULT_PASSPHRASE})
+            resp = self.api("POST", path, json={"passphrase": SYNTHETIC_PASSPHRASE})  # one shared vault
             self.assertIn(resp.status_code, (200, 201), resp.text)
         resp = self.api("PUT", "/api/settings/bedrock", json=SYNTHETIC_CONNECTION)
         self.assertEqual(resp.status_code, 200, resp.text)

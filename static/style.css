@@ -533,3 +533,53 @@ input[type=number] { font-variant-numeric: tabular-nums; }
   .named-timer-list li { align-items: flex-start; flex-wrap: wrap; }
   .user-reset-form { flex-wrap: wrap; }
 }
+
+/* Kitchen view (V3 F1): large camera and conversation, readable from the counter.
+   The existing panels are regrouped with display: contents, so DOM order and IDs stay stable. */
+.kitchen-overlay { display: none; }
+.session-panel.kitchen-mode { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr); grid-auto-flow: row dense; align-items: start; gap: 1rem; }
+.session-panel.kitchen-mode > * { grid-column: 1 / -1; }
+.session-panel.kitchen-mode > .session-bar, .session-panel.kitchen-mode > .notice { order: -10; }
+.session-panel.kitchen-mode .workspace,
+.session-panel.kitchen-mode .side-column,
+.session-panel.kitchen-mode .lower-workspace { display: contents; }
+.session-panel.kitchen-mode .session-bar { margin-bottom: 0; }
+.session-panel.kitchen-mode .workspace > *,
+.session-panel.kitchen-mode .side-column > *,
+.session-panel.kitchen-mode .lower-workspace > * { grid-column: auto; margin: 0; }
+.session-panel.kitchen-mode .camera-panel { grid-column: 1; grid-row: span 3; order: -3; }
+.session-panel.kitchen-mode .cook-column { grid-column: 2; order: -2; position: static; padding: 1.25rem 1.375rem; }
+.session-panel.kitchen-mode .voice-panel { grid-column: 2; order: -1; }
+.session-panel.kitchen-mode .timer-panel { grid-column: 2; order: -1; }
+.session-panel.kitchen-mode .video-frame { aspect-ratio: auto; height: clamp(320px, 66vh, 960px); }
+.session-panel.kitchen-mode .kitchen-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; gap: .75rem; padding: 1rem; pointer-events: none; color: #fff; }
+.kitchen-overlay .overlay-top { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+.kitchen-overlay .overlay-step, .kitchen-overlay .overlay-timer, .kitchen-overlay .overlay-status, .kitchen-overlay .overlay-caption { margin: 0; padding: .5rem .75rem; border-radius: var(--radius-control); background: rgb(12 14 18 / 72%); line-height: 1.25; }
+.kitchen-overlay .overlay-step { max-width: 70%; font-size: clamp(1.125rem, 2.2vw, 1.75rem); font-weight: 650; }
+.kitchen-overlay .overlay-timer { font-size: clamp(1.5rem, 3.4vw, 2.75rem); font-weight: 700; font-variant-numeric: tabular-nums; }
+.kitchen-overlay .overlay-timer[data-state="done"] { background: rgb(178 106 0 / 92%); }
+.kitchen-overlay .overlay-caption { align-self: center; max-width: 90%; font-size: clamp(1rem, 1.8vw, 1.5rem); text-align: center; }
+.kitchen-overlay .overlay-status { align-self: flex-start; font-size: .9375rem; font-weight: 600; }
+.kitchen-overlay .overlay-status[data-state="error"], .kitchen-overlay .overlay-status[data-state="stale"] { background: rgb(180 35 24 / 88%); }
+.session-panel.kitchen-mode .step-head h2 { font-size: clamp(1.5rem, 2.4vw, 2.125rem); }
+.session-panel.kitchen-mode .step-instruction { font-size: clamp(1.0625rem, 1.5vw, 1.3125rem); line-height: 1.5; }
+.session-panel.kitchen-mode .step-actions .button { min-height: 56px; font-size: 1.0625rem; }
+.session-panel.kitchen-mode .camera-controls .button,
+.session-panel.kitchen-mode .manual-controls .button,
+.session-panel.kitchen-mode #companion-toggle { min-height: 48px; font-size: 1rem; }
+.session-panel.kitchen-mode .voice-transcript { max-height: none; height: clamp(220px, 38vh, 560px); }
+.session-panel.kitchen-mode .voice-line { font-size: 1.0625rem; }
+.session-panel.kitchen-mode .voice-line:last-child { font-size: clamp(1.1875rem, 1.8vw, 1.5rem); line-height: 1.4; }
+.session-panel.kitchen-mode .voice-line:last-child span { color: var(--ink); }
+.session-panel.kitchen-mode .timer-readout { font-size: 2rem; }
+.session-panel:fullscreen { overflow: auto; padding: 1rem; background: var(--bg); }
+@media (max-width: 959px) {
+  .session-panel.kitchen-mode { grid-template-columns: minmax(0, 1fr); }
+  .session-panel.kitchen-mode .camera-panel,
+  .session-panel.kitchen-mode .cook-column,
+  .session-panel.kitchen-mode .voice-panel,
+  .session-panel.kitchen-mode .timer-panel { grid-column: 1; grid-row: auto; }
+  .session-panel.kitchen-mode .camera-panel { order: -4; }
+  .session-panel.kitchen-mode .video-frame { height: clamp(240px, 52vh, 640px); }
+  .session-panel.kitchen-mode .voice-transcript { height: clamp(180px, 32vh, 420px); }
+}

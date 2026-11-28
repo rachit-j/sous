@@ -11,6 +11,7 @@
   <script src="{{ url_for('static', filename='voice.js') }}" defer></script>
   <script src="{{ url_for('static', filename='v2.js') }}" defer></script>
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='kitchen.js') }}" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to cooking workspace</a>
@@ -200,6 +201,8 @@
       <header class="session-bar">
         <h1 class="session-name"><span id="session-recipe-name">Cooking session</span><span class="visually-hidden">: </span><span class="visually-hidden" id="session-title">Let’s get started.</span></h1>
         <div class="session-badges">
+          <button class="button button-secondary button-small" id="kitchen-view-toggle" type="button" aria-pressed="true" title="Large camera and conversation for glancing from the counter">Kitchen view</button>
+          <button class="button button-ghost button-small" id="fullscreen-toggle" type="button" hidden>Full screen</button>
           <span class="badge mode-badge" id="mode-badge"></span>
           <span class="badge monitoring-badge" id="monitoring-badge"><span class="state-dot" aria-hidden="true"></span><span></span></span>
         </div>
@@ -273,9 +276,14 @@
           <section class="panel prep-panel" aria-labelledby="prep-heading"><div class="panel-head"><div><h2 id="prep-heading">Before you start</h2><p>Check off ingredients and equipment as you gather them.</p></div></div><ul id="prep-checklist" class="prep-checklist"></ul><p id="prep-status" class="field-help" role="status"></p></section>
 
           <section class="panel camera-panel" aria-labelledby="camera-heading">
-            <div class="panel-head"><div><h2 id="camera-heading">Kitchen view</h2><p class="camera-caption"><span id="camera-caption">Camera is off</span><span class="thinking-dots" id="analysis-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
+            <div class="panel-head"><div><h2 id="camera-heading">Camera</h2><p class="camera-caption"><span id="camera-caption">Camera is off</span><span class="thinking-dots" id="analysis-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></p></div><span class="camera-indicator" id="camera-indicator" aria-hidden="true"></span></div>
             <div class="video-frame" id="video-frame">
               <video id="camera-video" autoplay muted playsinline aria-label="Live kitchen camera preview" hidden></video>
+              <div class="kitchen-overlay" id="kitchen-overlay" aria-hidden="true">
+                <div class="overlay-top"><span class="overlay-step" id="overlay-step"></span><span class="overlay-timer" id="overlay-timer" hidden></span></div>
+                <p class="overlay-caption" id="overlay-caption" hidden></p>
+                <span class="overlay-status" id="overlay-status"></span>
+              </div>
               <div class="camera-empty" id="camera-empty"><svg class="icon camera-symbol" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><p>Turn on the camera when you’re ready.</p></div>
             </div>
             <div class="camera-controls"><button class="button button-secondary button-small" id="camera-toggle" type="button">Turn on camera</button><button class="button button-secondary button-small" id="analyze-now" type="button" disabled>Analyze now</button></div>

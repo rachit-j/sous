@@ -1257,6 +1257,7 @@
 
   function speak(message) {
     if (state.companion?.running) return;
+    if (message) document.dispatchEvent(new CustomEvent("sous:spoken", { detail: { text: message } }));
     if (!message || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
     if (state.recognition && state.listening) {
       state.restartRecognition = true;

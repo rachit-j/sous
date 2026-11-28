@@ -131,3 +131,14 @@ Classes and attributes created by app.js that the stylesheet relies on:
 The voice panel has explicit Start/Stop, a status region and bounded temporary conversation text. It explains AWS audio sharing and keeps text/manual controls available. Settings selects the speaking voice independently of the camera model. No microphone starts automatically; Settings, hidden tabs, session end and lock close it. Listening/speaking states use the existing green/blue accents without required motion. See [voice lifecycle](voice.md).
 
 The WebKit suite ([tests/test_browser.py](../tests/test_browser.py)) captures setup, cooking and completion at desktop/mobile sizes under `/private/tmp/sous-webkit-artifacts`, plus `cooking-desktop-viewport.png`. It resets scroll instantly before captures and checks step-column alignment at page top. It asserts there is no horizontal overflow at 1280px and 390px, and that the correct-step form is fully visible and unclipped at both widths. Results are recorded in [Validation evidence](validation.md).
+
+
+## Kitchen view
+
+V3 F1 ([V3](v3.md#f1-kitchen-view)). During a cook the session opens in **Kitchen view** by default; the session bar toggles it (saved in browser `localStorage` as a layout preference only). The existing panels are regrouped with CSS grid and `display: contents`, so element IDs, DOM order and keyboard order are unchanged.
+
+- Landscape (≥960px): the camera takes the left ~62% at up to 66vh, with the current step, timer and voice conversation in the right column. Other tools (checklist, observations, recipe, notes) flow below.
+- Narrow screens: one column, camera first, then step, voice and timer.
+- The camera shows a distance-readable overlay (`aria-hidden`; the same information stays in the accessible panels): step number and title, the running timer, monitoring freshness, and a temporary caption of what Sous says aloud through browser speech.
+- The newest transcript line is larger. Step, camera, guidance and voice buttons are at least 48–56px tall.
+- A screen Wake Lock is requested while the cooking view is visible and released when it is hidden, the cook ends or the user signs out. Full screen is an optional button where the browser supports it.

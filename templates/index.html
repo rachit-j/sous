@@ -82,8 +82,8 @@
           </details>
           <fieldset class="field mode-field">
             <legend>How should Sous guide you?</legend>
-            <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Speak up for step changes, timer, or something to check.</small></span></label>
-            <label class="radio-choice"><input type="radio" name="mode" value="assistive"><span><strong>Talk me through it</strong><small>Also read each step aloud when you arrive.</small></span></label>
+            <label class="radio-choice"><input type="radio" name="mode" value="monitoring" checked><span><strong>Keep an eye out</strong><small>Sous watches quietly. It speaks only for timers and camera alerts; step changes show on screen.</small></span></label>
+            <label class="radio-choice"><input type="radio" name="mode" value="assistive"><span><strong>Talk me through it</strong><small>Sous also reads each step aloud and says when the camera thinks a step is done.</small></span></label>
           </fieldset>
           <div class="setup-footer">
             <p class="privacy-note"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 6H14l1.5 2H19a2 2 0 0 1 2 2v7.4"/><path d="M17.6 19H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h1"/><path d="M9.8 11.2a3 3 0 0 0 4 4"/></svg><span>Camera stays off until you turn it on. Your hands-on controls work without it.</span></p>
@@ -204,6 +204,7 @@
           <button class="button button-secondary button-small" id="kitchen-view-toggle" type="button" aria-pressed="true" title="Large camera and conversation for glancing from the counter">Kitchen view</button>
           <button class="button button-ghost button-small" id="fullscreen-toggle" type="button" hidden>Full screen</button>
           <span class="badge mode-badge" id="mode-badge"></span>
+          <button class="button button-ghost button-small" id="mode-switch" type="button">Switch mode</button>
           <span class="badge monitoring-badge" id="monitoring-badge"><span class="state-dot" aria-hidden="true"></span><span></span></span>
         </div>
       </header>

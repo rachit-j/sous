@@ -841,11 +841,13 @@
     return true;
   }
 
+  // Mixed initiative (docs/v3.md F3): "monitoring" changes steps visually only and speaks just
+  // timers and camera alerts; "assistive" also announces each step, and when the camera advanced it.
   function announceStateChange(previous, current, source) {
-    if (state.recipe && previous.step_index !== current.step_index) {
+    if (state.recipe && previous.step_index !== current.step_index && current.mode === "assistive") {
       const step = state.recipe.steps[current.step_index];
-      if (current.mode === "assistive") speak(`${step.title}. ${step.instruction}`);
-      else if (current.mode === "monitoring") speak(`Next step: ${step.title}.`);
+      const lead = source === "observation" && current.step_index > previous.step_index ? "That step looks done. " : "";
+      speak(`${lead}${step.title}. ${step.instruction}`);
     }
     if (state.recipe && previous.mode !== current.mode && current.mode === "assistive") {
       const step = state.recipe.steps[current.step_index];
@@ -885,6 +887,8 @@
     $("#session-recipe-name").textContent = recipe.name;
     $("#session-title").textContent = session.status === "completed" ? "Cooking complete." : step.title;
     $("#mode-badge").textContent = session.mode === "assistive" ? "Talk me through it" : "Keep an eye out";
+    $("#mode-switch").textContent = session.mode === "assistive" ? "Switch to quiet watching" : "Switch to talk me through it";
+    $("#mode-switch").disabled = session.status !== "active";
     const badge = $("#monitoring-badge");
     badge.classList.toggle("active", session.monitoring);
     badge.lastElementChild.textContent = session.monitoring ? "Guidance on" : "Guidance paused";
@@ -947,6 +951,8 @@
     $("#session-title").textContent = "Recipe unavailable";
     $("#session-recipe-name").textContent = "Saved cooking session";
     $("#mode-badge").textContent = session.mode === "assistive" ? "Talk me through it" : "Keep an eye out";
+    $("#mode-switch").textContent = session.mode === "assistive" ? "Switch to quiet watching" : "Switch to talk me through it";
+    $("#mode-switch").disabled = session.status !== "active";
     const badge = $("#monitoring-badge");
     badge.classList.remove("active");
     badge.lastElementChild.textContent = "Guidance unavailable";
@@ -1252,7 +1258,7 @@
   function announceTimer() {
     $("#timer-status").textContent = "Timer finished";
     showToast("Timer finished.");
-    if (state.session?.mode === "monitoring" || state.session?.mode === "assistive") speak("Your timer is finished.");
+    speak("Your timer is finished.");  // every mode: timers are always announced
   }
 
   function speak(message) {
@@ -1679,6 +1685,13 @@
       updateCaptureLoop();
     });
     window.addEventListener("pagehide", cleanupSession, { once: true });
+    $("#mode-switch").addEventListener("click", () => {
+      if (!state.session) return;
+      runAction("mode", { mode: state.session.mode === "assistive" ? "monitoring" : "assistive" }).catch(() => {});
+    });
+    document.addEventListener("sous:speak", (event) => {
+      if (state.session?.status === "active" && event.detail?.text) speak(event.detail.text);
+    });
   }
 
   bindEvents();

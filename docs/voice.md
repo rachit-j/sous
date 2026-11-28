@@ -45,3 +45,8 @@ Run the localhost WebSocket integration with `SOUS_VOICE_SOCKET_TESTS=1 .venv/bi
 - [Flask-Sock servers](https://flask-sock.readthedocs.io/en/latest/web_servers.html)
 
 See [Settings](settings.md), [API](api.md), [plan](../PLAN.md), [status](../STATUS.md).
+
+
+## Guidance modes
+
+V3 ([F3](v3.md#f3-mixed-initiative-modes)). Every context update carries the cook's guidance mode. In *keep an eye out* (monitoring) mode, step changes are not narrated; timers, named timers, camera alerts and mode changes still are. In *talk me through it* (assistive) mode, each new step is introduced. Modes never let voice change cooking state.

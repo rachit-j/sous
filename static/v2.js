@@ -307,9 +307,15 @@
     node.textContent = `${labels[key] || labels.unknown}${at ? ` Last successful look: ${new Date(at * 1000).toLocaleTimeString()}.` : ""} Camera snapshots are intermittent; they cannot confirm food safety or detect every emergency.`;
     node.dataset.state = key || "unknown";
   }
+  const spokenAlerts = new Set();
   function renderAlerts(alerts) {
     const host = $("#advisory-alerts"); host.replaceChildren();
     for (const alert of alerts.filter((item) => !item.acknowledged_at)) {
+      if (!spokenAlerts.has(alert.id)) {  // advisory concerns are spoken once in every guidance mode
+        spokenAlerts.add(alert.id);
+        const lead = alert.category === "possible_emergency" ? "Possible emergency. Please check the scene now." : "Possible hazard. Please check.";
+        document.dispatchEvent(new CustomEvent("sous:speak", { detail: { text: `${lead} ${alert.title || ""}`.trim() } }));
+      }
       const article = document.createElement("article"); article.className = `advisory-alert ${alert.category === "possible_emergency" ? "urgent" : "caution"}`;
       article.append(text("strong", alert.category === "possible_emergency" ? "Possible emergency — check the scene now" : "Possible hazard — please check"));
       article.append(text("h3", alert.title || "Camera observation"), text("p", alert.evidence || "The camera model flagged something to review."));

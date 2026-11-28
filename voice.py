@@ -192,6 +192,8 @@ def describe_state(recipe, row, at, extra=None):
         parts.append("The timer has finished.")
     if not row["monitoring"]:
         parts.append("Camera monitoring is paused.")
+    if "mode" in row.keys():
+        parts.append(MODE_GUIDANCE.get(row["mode"], ""))
     try:
         obs = json.loads(row["latest_observation"]) if row["latest_observation"] else None
     except ValueError:
@@ -215,7 +217,14 @@ def greeting(recipe, row, at):
             f"and mention the current step. {describe_state(recipe, row, at)}")[:MAX_CONTEXT]
 
 
-STATE_COLUMNS = "status, step_index, monitoring, timer_deadline, timer_alerted, latest_observation"
+STATE_COLUMNS = "status, step_index, monitoring, mode, timer_deadline, timer_alerted, latest_observation"
+# Mixed initiative (docs/v3.md F3). Timers and camera alerts are announced in every mode.
+MODE_GUIDANCE = {
+    "monitoring": ("Guidance mode: keep an eye out. Stay quiet unless the cook speaks to you; only timers "
+                   "and camera alerts are announced unprompted."),
+    "assistive": ("Guidance mode: talk me through it. Proactively introduce each new step and offer short, "
+                  "practical tips."),
+}
 # Named timers whose deadline has passed, unless cancelled or dismissed before finishing. An
 # acknowledgment after the deadline (the UI may ack between polls) still gets one announcement.
 NAMED_DONE = ("SELECT id, name FROM session_timers WHERE session_id = ? AND deadline_at <= ?"
@@ -229,6 +238,7 @@ class SessionWatcher:
     def __init__(self, db, session_id, recipe, row, at):
         self.db, self.session_id, self.recipe = db, session_id, recipe
         self.step = row["step_index"]
+        self.mode = row["mode"] if "mode" in row.keys() else None
         self.deadline = row["timer_deadline"]
         self.timer_done = self.deadline if self.deadline is not None and at >= self.deadline else None
         last = db.execute("SELECT MAX(id) FROM events WHERE session_id = ?", (session_id,)).fetchone()[0]
@@ -243,9 +253,13 @@ class SessionWatcher:
         if row is None or row["status"] != "active":
             return None, "session_ended"
         notes = []
+        if row["mode"] != self.mode:
+            self.mode = row["mode"]
+            notes.append("The cook changed the guidance mode. Acknowledge it in a few words.")
         if row["step_index"] != self.step:
             self.step = row["step_index"]
-            notes.append("The cook is now on a different step. Introduce it in one or two sentences.")
+            if row["mode"] == "assistive":  # monitoring mode: step changes stay on screen only
+                notes.append("The cook is now on a different step. Introduce it in one or two sentences.")
         deadline = row["timer_deadline"]
         if deadline != self.deadline:
             self.deadline, self.timer_done = deadline, None

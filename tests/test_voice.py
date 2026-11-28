@@ -496,6 +496,7 @@ class VoiceStreamTests(VoiceTestCase):
     def test_context_updates_on_relevant_changes_only(self):
         sid = self.session["id"]
         recipe = self.session["recipe"]
+        self.sql("UPDATE sessions SET mode = 'assistive' WHERE id = ?", (sid,))  # assistive narrates steps
         stream = FakeStream()
 
         def updates():
@@ -528,6 +529,31 @@ class VoiceStreamTests(VoiceTestCase):
         self.assertIn("not live", alert)
         self.assertIn("you cannot see the kitchen now", alert)
         self.assertEqual(len(updates()), 4)
+
+    def test_monitoring_mode_keeps_step_changes_quiet_but_announces_mode_and_timers(self):
+        sid = self.session["id"]
+        stream = FakeStream()
+
+        def updates():
+            return [t for t in stream.texts("USER") if t.startswith(voice.UPDATE_PREFIX)][1:]  # skip greeting
+
+        counts = {}
+        sent, _, _ = self.converse(
+            run(lambda: self.act(sid, "next")),
+            after(0.3),  # several polls: monitoring mode does not narrate the step change
+            run(lambda: counts.setdefault("after_step", len(updates()))),
+            run(lambda: self.act(sid, "timer_set", seconds=30)),
+            lambda w: any("A timer was set" in t for t in updates()),
+            run(lambda: self.act(sid, "mode", mode="assistive")),
+            lambda w: any("changed the guidance mode" in t for t in updates()),
+            json.dumps({"type": "stop"}),
+            stream=stream,
+        )
+        self.assertEqual(sent[-1], {"type": "stopped", "reason": "client_stop"})
+        self.assertEqual(counts["after_step"], 0)
+        self.assertNotIn("Introduce it", " ".join(updates()))
+        self.assertIn("keep an eye out", updates()[0])  # current mode travels with every update
+        self.assertIn("talk me through it", updates()[-1])
 
     def test_timer_expiry_survives_browser_ack_and_is_not_repeated_on_start(self):
         sid = self.session["id"]

@@ -126,18 +126,26 @@ class SousBrowserTests(unittest.TestCase):
         self.assertEqual(result, 0, f"Expected page to settle at the top, got scrollY={result}")
 
     def assert_cook_column_starts_with_workspace(self):
+        """Kitchen view (default, docs/v3.md F1): camera and step card share the top row on desktop,
+        and the camera takes most of the width. Standard view: the cook column tops the workspace."""
         layout = self.page.evaluate("""
           () => {
-            const workspace = document.querySelector('.workspace').getBoundingClientRect();
-            const cook = document.querySelector('.cook-column').getBoundingClientRect();
-            return { scrollY: window.scrollY, workspaceTop: workspace.top, cookTop: cook.top };
+            const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+            const kitchen = document.querySelector('#session-panel').classList.contains('kitchen-mode');
+            return { scrollY: window.scrollY, kitchen, workspaceTop: box('.workspace').top, cookTop: box('.cook-column').top,
+                     cameraTop: box('.camera-panel').top, cameraWidth: box('.camera-panel').width,
+                     panelWidth: box('#session-panel').width };
           }
         """)
         self.assertEqual(layout["scrollY"], 0, f"Desktop layout check requires page top: {layout}")
-        self.assertLessEqual(
-            abs(layout["cookTop"] - layout["workspaceTop"]), 1,
-            f"Cook column should align with the workspace at page top: {layout}",
-        )
+        if layout["kitchen"]:
+            self.assertLessEqual(abs(layout["cookTop"] - layout["cameraTop"]), 1,
+                                 f"Kitchen view: camera and step card should share the top row: {layout}")
+            self.assertGreaterEqual(layout["cameraWidth"] / layout["panelWidth"], 0.55,
+                                    f"Kitchen view: camera should take most of the width: {layout}")
+        else:
+            self.assertLessEqual(abs(layout["cookTop"] - layout["workspaceTop"]), 1,
+                                 f"Cook column should align with the workspace at page top: {layout}")
 
     def assert_no_horizontal_overflow(self, label):
         result = self.page.evaluate("""
@@ -381,7 +389,7 @@ class SousBrowserTests(unittest.TestCase):
         sentinel = object()
         previous = sys.modules.get("providers", sentinel)
         fake = types.ModuleType("providers")
-        fake.analyze = lambda provider, model, jpeg, context: {
+        fake.analyze = lambda provider, model, jpeg, context, **_: {
             "activity": "Synthetic browser test frame",
             "evidence": "A generated color field is visible in the test camera.",
             "confidence": 0.62,
@@ -440,7 +448,7 @@ class SousBrowserTests(unittest.TestCase):
         sentinel = object()
         previous = sys.modules.get("providers", sentinel)
         fake = types.ModuleType("providers")
-        fake.analyze = lambda provider, model, jpeg, context: {
+        fake.analyze = lambda provider, model, jpeg, context, **_: {
             "activity": "Synthetic pending frame",
             "evidence": "A generated color field is visible in the test camera.",
             "confidence": 0.55,

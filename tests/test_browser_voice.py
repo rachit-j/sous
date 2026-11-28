@@ -196,7 +196,7 @@ class VoiceBrowserTests(unittest.TestCase):
     def start_voice(self):
         self.start_session()
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe, step, or latest camera observation.").wait_for()
+        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
 
     def test_start_audio_worklet_transcript_interruption_and_stop(self):
         self.start_voice()
@@ -297,7 +297,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.assertTrue(self.page.evaluate("window.__voiceSockets[0].closed"))
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe, step, or latest camera observation.").wait_for()
+        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
         self.page.evaluate("""() => {
           const raw = String.fromCharCode(0).repeat(30 * 24000 * 2 + 2);
           window.__voiceSockets.at(-1).receive({ type: 'audio', audio: btoa(raw) });
@@ -324,7 +324,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.page.evaluate("Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })")
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe, step, or latest camera observation.").wait_for()
+        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
         self.page.evaluate("""async () => {
           const token = document.querySelector('meta[name=csrf-token]').content;
           const passphrase = 'synthetic voice vault passphrase';
@@ -337,7 +337,7 @@ class VoiceBrowserTests(unittest.TestCase):
         self.assertEqual(self.page.locator("#voice-transcript .voice-line").count(), 0)
 
         self.page.locator("#companion-toggle").click()
-        self.page.get_by_text("Listening. Ask about this recipe, step, or latest camera observation.").wait_for()
+        self.page.get_by_text("Listening. Ask about this recipe or step, or “what do you see?” with the camera on.").wait_for()
         self.page.locator("#end-session").click()
         self.page.locator("#completion-panel").wait_for(state="visible")
         self.assertIn("cooking session ended", self.page.locator("#companion-status").text_content())
@@ -360,7 +360,11 @@ class VoiceBrowserTests(unittest.TestCase):
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         }""")
         self.assertEqual(self.page.evaluate("window.scrollY"), 0)
-        self.assertLessEqual(abs(self.page.locator(".cook-column").evaluate("element => element.getBoundingClientRect().top") - self.page.locator(".workspace").evaluate("element => element.getBoundingClientRect().top")), 1)
+        # Kitchen view on a phone: one column, camera first, then the step card above the voice panel.
+        tops = self.page.evaluate("""() => Object.fromEntries(['.camera-panel', '.cook-column', '#voice-panel'].map(
+          (selector) => [selector, document.querySelector(selector).getBoundingClientRect().top]))""")
+        self.assertLess(tops[".camera-panel"], tops[".cook-column"])
+        self.assertLess(tops[".cook-column"], tops["#voice-panel"])
         self.page.screenshot(path=ARTIFACTS + "/voice-companion-mobile.png", full_page=True)
         bounds = self.page.locator("#voice-panel").evaluate("element => ({left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right})")
         viewport_width = self.page.evaluate("window.innerWidth")
@@ -373,7 +377,11 @@ class VoiceBrowserTests(unittest.TestCase):
           await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         }""")
         self.assertEqual(self.page.evaluate("window.scrollY"), 0)
-        self.assertLessEqual(abs(self.page.locator(".cook-column").evaluate("element => element.getBoundingClientRect().top") - self.page.locator(".workspace").evaluate("element => element.getBoundingClientRect().top")), 1)
+        # Kitchen view on desktop: camera and step card share the top row; voice sits beside the camera.
+        boxes = self.page.evaluate("""() => Object.fromEntries(['.camera-panel', '.cook-column', '#voice-panel'].map(
+          (selector) => { const r = document.querySelector(selector).getBoundingClientRect(); return [selector, {top: r.top, left: r.left}]; }))""")
+        self.assertLessEqual(abs(boxes[".camera-panel"]["top"] - boxes[".cook-column"]["top"]), 1)
+        self.assertGreater(boxes["#voice-panel"]["left"], boxes[".camera-panel"]["left"])
         self.page.screenshot(path=ARTIFACTS + "/voice-companion-desktop.png", full_page=True)
         self.assertEqual(self.page_errors, [])
 
